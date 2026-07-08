@@ -47,6 +47,7 @@ dependencies {
     implementation(libs.grpc.okhttp)
     implementation(libs.grpc.protobuf.lite)
     implementation(libs.grpc.stub)
+    implementation("androidx.webkit:webkit:1.11.0")
 }
 
 protobuf {
