@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+import "Common.proto";
+
+package ee.wayren.icp.services;
+
+
+message MessagesByChannelSubscriptionQuery {
+    oneof query {
+        MessagesByChannelSubscribeQuery subscribe_query = 1;
+        MessagesByChannelUnsubscribeQuery unsubscribe_query = 2;
+    }
+}
+
+message MessagesByChannelSubscribeQuery {
+    uint64 channel = 1;
+    uint64 next_receive_num = 2;
+    common.Uuid storage_uuid = 3;
+}
+
+message MessagesByChannelUnsubscribeQuery {
+    uint64 channel = 1;
+}
+
+enum LimitMode {
+	LIMIT_NEWEST = 0;
+	LIMIT_OLDEST = 1;
+}
+
+message MessagesByChannelQuery {
+    fixed64 channel = 1;
+    uint64 min_receive_num = 2;
+    uint64 max_receive_num = 8;
+    common.Timestamp min_created_at = 3;
+    common.Timestamp max_created_at = 4;
+    uint64 limit = 6;
+    LimitMode limit_mode = 7;
+    common.Uuid storage_uuid = 9;
+}
+
+message NewChannel {
+    string name = 1;
+}
+
+message CryptoKey {
+    string type = 1;
+    bytes secret = 2;
+}
+
+message PayloadEncryption {
+    oneof key_source {
+        string keyset_id = 1;
+        CryptoKey key = 2;
+    }
+}
+
+message NewMessage {
+    services.NewMessageHeader header = 1;
+    bytes data = 2;
+    services.NewMessageMetadata metadata = 3;
+    PayloadEncryption payload_encryption = 4;
+}
+
+message NewMessageHeader {
+    common.Uuid oid = 1;
+    uint64 channel = 2;
+    uint32 priority = 3;
+    common.Timestamp created_at = 5;
+    common.Timestamp expires_at = 4;
+}
+
+message NewMessageMetadata {
+    bool should_sync = 1;
+}
+
+message CryptoContainer {
+    fixed32 key_hash = 1;
+    bytes data = 2;
+}
+
+message TimestampResponse {
+    common.Timestamp timestamp = 1;
+}
+
+message RouterUuidResponse {
+    common.Uuid uuid = 1;
+}

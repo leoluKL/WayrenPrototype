@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package ee.wayren.icp.channels;
+
+/**
+* Struct representing a virtual channel messages can be associated to.
+*/
+message Channel {
+    // Platform generated CRC64
+    uint64 id = 1;
+    // Channels name. Can be human readable channel name or a string data defining type of application and name (For example wayren-chat;TEST)
+    string name = 2;
+}

@@ -7,7 +7,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 class WebAppInterface(
     private val webView: WebView,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val grpcClient: GrpcClient
 ) {
     // Keeps track of active gRPC stream collection jobs mapped by streamId
     private val activeStreams = ConcurrentHashMap<String, Job>()
@@ -77,8 +78,16 @@ class WebAppInterface(
 
 
 
-    private fun handleGrpcPing(): String {
-        // TODO: ping to Wayren Companion APP gRPC service point
-        return "pong"
+    private suspend fun handleGrpcPing(): String {
+        return try {
+            val success = grpcClient.ping()
+            if (success) {
+                """{"status": "ok", "message": "pong"}"""
+            } else {
+                """{"status": "error", "message": "gRPC ping returned failure"}"""
+            }
+        } catch (e: Exception) {
+            """{"status": "error", "message": "gRPC ping failed: ${e.message}"}"""
+        }
     }
 }

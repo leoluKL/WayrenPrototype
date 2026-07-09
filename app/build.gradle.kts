@@ -48,6 +48,8 @@ dependencies {
     implementation(libs.grpc.protobuf.lite)
     implementation(libs.grpc.stub)
     implementation("androidx.webkit:webkit:1.11.0")
+    // javax.annotation is used by gRPC generated stubs (@Generated annotation)
+    implementation("javax.annotation:javax.annotation-api:1.3.2")
 }
 
 protobuf {

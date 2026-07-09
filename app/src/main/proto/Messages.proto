@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+import "Common.proto";
+
+package ee.wayren.icp.messages;
+
+
+message Message {
+    // Always present.
+    messages.MessageHeader header = 1;
+
+    // Opaque payload. Format is specific to the client application.
+    // Always present.
+    bytes data = 2;
+
+    // Always present.
+    messages.MessageMetadata metadata = 3;
+}
+
+message MessageHeader {
+    // Object identifier.
+    // Client applications can use this field when the message represents
+    // the state of of particular object at a particular time.
+    // Keeping the oid in MessageHeader and not in Message.data allows ICP
+    // to provide more sophisticated query methods and to prioritize
+    // exchanging latest states of distinct objects rather than just
+    // latest messages.
+    // Optional.
+    common.Uuid oid = 1;
+
+    // The channel this message belongs to.
+    // Always present (value of 0 has no special significance).
+    uint64 channel = 2;
+
+    // Always present (value of 0 has no special significance).
+    uint32 priority = 3;
+
+    // The instant the message was created.
+    // Timestamp is taken according to the clock of the host
+    // that created the message.
+    // Always present.
+    common.Timestamp created_at = 4;
+
+    // Expiration timestamp.
+    // Message will get deprioritized at this instant.
+    // Optional.
+    common.Timestamp expires_at = 5;
+
+    // UUID of the ICP instance that created this message.
+    // Can be used to correlate messages with hosts that created them.
+    // Always present.
+    common.Uuid created_by = 6;
+}
+
+message MessageMetadata {
+    // The instant the local ICP instance received this message.
+    // Always present.
+    common.Timestamp received_at = 1;
+
+    // UUID of the remote ICP instance that the local ICP instance received the
+    // message from.
+    // Optional.
+    common.Uuid forwarded_by = 2;
+
+    // Sequential number assigned at message reception.
+    // Unlike received_at, this field is not subject to clock skew and is guaranteed
+    // to be strictly increasing.
+    // It can be used by client applications wishing to consume messages as a stream,
+    // in the order they were received. See StreamMessages<...>InReceiveOrder API
+    // defintions for details.
+    // Always present (and non-zero).
+    uint64 receive_num = 3;
+
+    // Flag that defines if message should be synced to other nodes or is local
+    // Always present.
+    bool should_sync = 4;
+
+    bytes hash = 5;
+}

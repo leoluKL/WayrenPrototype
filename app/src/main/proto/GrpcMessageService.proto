@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+
+import "Common.proto";
+import "Channels.proto";
+import "Messages.proto";
+import "Services.proto";
+
+package ee.wayren.icp.services.grpc;
+
+service MessageService {
+    // Ping request to easily verify if service is running.
+    rpc Ping (google.protobuf.Empty) returns (google.protobuf.Empty) {};
+
+    // Returns the service's current timestamp.
+    rpc FetchTimestamp(google.protobuf.Empty) returns (ee.wayren.icp.common.Timestamp) {};
+
+    /// Fetches Router UUID. Useful for pre-calculating deterministic headers.
+    rpc FetchRouterUuid(google.protobuf.Empty) returns (ee.wayren.icp.common.Uuid) {};
+
+    // Fetches Storage UUID. If this has changed between sessions, next_receive_num should be reset to 0
+    rpc FetchStorageUuid(google.protobuf.Empty) returns (ee.wayren.icp.common.Uuid) {};
+
+    // Like CreateMessage, but takes a fully formed message
+    rpc SaveExternallyCreatedMessage(ee.wayren.icp.messages.Message) returns (ee.wayren.icp.messages.Message) {};
+
+    // Creates new message.
+    rpc CreateMessage (ee.wayren.icp.services.NewMessage) returns (ee.wayren.icp.messages.Message) {};
+
+    // Returns a stream of messages that are created after the creation of the stream.
+    rpc StreamAllNewMessages (google.protobuf.Empty) returns (stream ee.wayren.icp.messages.Message) {};
+
+    // Streams messages ordered by receive_num and filtered by channels.
+    rpc StreamMessagesByChannelInReceiveOrder(stream ee.wayren.icp.services.MessagesByChannelSubscriptionQuery) returns (stream ee.wayren.icp.messages.Message) {};
+
+    // Fetches messages from a single channel.
+    rpc FetchMessagesByChannel(MessagesByChannelQuery) returns (stream ee.wayren.icp.messages.Message);
+
+    // Creates new channel
+    rpc CreateChannel(ee.wayren.icp.services.NewChannel) returns (ee.wayren.icp.channels.Channel) {};
+
+    // Returns stream of all channels that are known and newly created ones.
+    rpc StreamAllChannels(google.protobuf.Empty) returns (stream ee.wayren.icp.channels.Channel) {};
+}
