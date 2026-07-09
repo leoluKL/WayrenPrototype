@@ -1,0 +1,84 @@
+package com.example.wayrenprototype
+
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import kotlinx.coroutines.*
+import java.util.concurrent.ConcurrentHashMap
+
+class WebAppInterface(
+    private val webView: WebView,
+    private val scope: CoroutineScope
+) {
+    // Keeps track of active gRPC stream collection jobs mapped by streamId
+    private val activeStreams = ConcurrentHashMap<String, Job>()
+
+    //Handles standard, one-time data requests (Request-Response)
+    @JavascriptInterface
+    fun sendToNative(action: String, jsonPayload: String, callbackId: String) {
+        // NOTE: For streams, the "callbackId" parameter becomes your "streamId" channel name
+
+        // Run on background thread so the gRPC network call never freezes your React UI
+        scope.launch(Dispatchers.IO) {
+            // 1. Process your action and incoming payload
+            val jsonResponse = when (action) {
+                "ping" -> handleGrpcPing()
+                else -> "{\"error\": \"Unknown action: $action\"}"
+            }
+
+            // 2. Return the result back to JavaScript on the main UI thread
+            withContext(Dispatchers.Main) {
+                webView.evaluateJavascript(
+                    "window.handleAndroidResponse('$callbackId', `$jsonResponse`);",
+                    null
+                )
+            }
+        }
+    }
+
+    //Handles long-running gRPC data streams (Publish-Subscribe)
+    @JavascriptInterface
+    fun startNativeStream(action: String, jsonPayload: String, streamId: String) {
+        scope.launch(Dispatchers.IO) {
+            // Track this specific coroutine job so it can be killed on command
+            val currentJob = coroutineContext[Job]
+            if (currentJob != null) {
+                activeStreams[streamId] = currentJob
+            }
+
+            try {
+                when (action) {
+                    "subscribePriceStream" -> {
+                        // Your real gRPC stream/flow collector loop goes here
+                        while (coroutineContext.isActive) {
+                            delay(1000)
+                            val liveJsonChunk = "{\"price\": ${Math.random() * 100}, \"token\": \"BTC\"}"
+
+                            withContext(Dispatchers.Main) {
+                                webView.evaluateJavascript(
+                                    "window.handleAndroidStreamEvent('$streamId', `$liveJsonChunk`);",
+                                    null
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                // Stream was stopped normally by the frontend
+            }
+        }
+    }
+
+    //Explicitly halts an open background stream
+    @JavascriptInterface
+    fun stopNativeStream(streamId: String) {
+        activeStreams[streamId]?.cancel()
+        activeStreams.remove(streamId)
+    }
+
+
+
+    private fun handleGrpcPing(): String {
+        // TODO: ping to Wayren Companion APP gRPC service point
+        return "pong"
+    }
+}

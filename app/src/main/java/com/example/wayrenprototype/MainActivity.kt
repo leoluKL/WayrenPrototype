@@ -1,10 +1,13 @@
 package com.example.wayrenprototype
 
 import android.annotation.SuppressLint
+import android.os.Build
 import android.os.Bundle
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
 
@@ -19,6 +22,15 @@ class MainActivity : AppCompatActivity() {
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
+
+
+        //Enable remote debugging so you can use Chrome DevTools on your computer
+        WebView.setWebContentsDebuggingEnabled(true)
+
+        // Instantiate your WebAppInterface and link it using your bridge name
+        val webInterface = WebAppInterface(webView, lifecycleScope)
+        webView.addJavascriptInterface(webInterface, "AndroidBridge")
+
 
         // Configures a virtual secure domain that points to your assets folder
         val assetLoader = WebViewAssetLoader.Builder()
