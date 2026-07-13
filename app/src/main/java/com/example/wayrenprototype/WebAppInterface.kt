@@ -3,6 +3,7 @@ package com.example.wayrenprototype
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import kotlinx.coroutines.*
+import kotlin.time.Duration.Companion.seconds
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
@@ -15,6 +16,7 @@ class WebAppInterface(
     private val activeStreams = ConcurrentHashMap<String, Job>()
 
     //Handles standard, one-time data requests (Request-Response)
+    @Suppress("unused")
     @JavascriptInterface
     fun sendToNative(action: String, jsonPayload: String, callbackId: String) {
         // NOTE: For streams, the "callbackId" parameter becomes your "streamId" channel name
@@ -40,6 +42,7 @@ class WebAppInterface(
     }
 
     //Handles long-running gRPC data streams (Publish-Subscribe)
+    @Suppress("unused")
     @JavascriptInterface
     fun startNativeStream(action: String, jsonPayload: String, streamId: String) {
         scope.launch(Dispatchers.IO) {
@@ -54,7 +57,7 @@ class WebAppInterface(
                     "subscribePriceStream" -> {
                         // Your real gRPC stream/flow collector loop goes here
                         while (coroutineContext.isActive) {
-                            delay(1000)
+                            delay(1.seconds)
                             val liveJsonChunk = "{\"price\": ${Math.random() * 100}, \"token\": \"BTC\"}"
 
                             withContext(Dispatchers.Main) {
@@ -73,6 +76,7 @@ class WebAppInterface(
     }
 
     //Explicitly halts an open background stream
+    @Suppress("unused")
     @JavascriptInterface
     fun stopNativeStream(streamId: String) {
         activeStreams[streamId]?.cancel()

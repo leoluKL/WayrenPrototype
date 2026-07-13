@@ -1,8 +1,6 @@
 package com.example.wayrenprototype
 
 import android.annotation.SuppressLint
-import android.util.Log
-import android.os.Build
 import android.os.Bundle
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -23,7 +21,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        val webView = findViewById<android.webkit.WebView>(R.id.webView)
+        val webView = findViewById<WebView>(R.id.webView)
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
@@ -44,7 +42,7 @@ class MainActivity : AppCompatActivity() {
 
         webView.webViewClient = object : WebViewClientCompat() {
             override fun shouldInterceptRequest(
-                view: android.webkit.WebView,
+                view: WebView,
                 request: WebResourceRequest
             ): WebResourceResponse? {
                 // Intercept asset files and serve them under the secure domain
@@ -65,9 +63,5 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         grpcClient.shutdown()
-    }
-
-    companion object {
-        private const val TAG = "WayrenApp"
     }
 }
