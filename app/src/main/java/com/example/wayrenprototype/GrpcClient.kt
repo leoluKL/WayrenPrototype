@@ -9,6 +9,7 @@ import io.grpc.StatusRuntimeException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.seconds
 import java.util.concurrent.TimeUnit
 
 /**
@@ -24,7 +25,7 @@ class GrpcClient(
 ) {
     companion object {
         private const val TAG = "WayrenApp"
-        private const val DEFAULT_RETRY_INTERVAL_MS = 3000L
+        private val RETRY_INTERVAL = 3.seconds
 
         // Channel IDs (uint64). ALLCONCHANNEL exceeds Long.MAX_VALUE so we store as ULong.
         private val ALLCONCHANNEL = 16140341465198178175uL
@@ -63,7 +64,7 @@ class GrpcClient(
 
     /**
      * Continuously monitors the connection to the Wayren Companion service.
-     * Pings every [DEFAULT_RETRY_INTERVAL_MS] and updates [isConnected].
+     * Pings every [RETRY_INTERVAL] and updates [isConnected].
      * Designed to be launched as a background coroutine that runs forever.
      */
     suspend fun detectChannelState() {
@@ -86,7 +87,7 @@ class GrpcClient(
                     Log.w(TAG, "Connection lost — Wayren Companion is unreachable")
                 }
             }
-            delay(DEFAULT_RETRY_INTERVAL_MS)
+            delay(RETRY_INTERVAL)
         }
     }
 
@@ -101,7 +102,7 @@ class GrpcClient(
             if (!channel.awaitTermination(5, TimeUnit.SECONDS)) {
                 channel.shutdownNow()
             }
-        } catch (e: InterruptedException) {
+        } catch (_: InterruptedException) {
             channel.shutdownNow()
         }
     }
