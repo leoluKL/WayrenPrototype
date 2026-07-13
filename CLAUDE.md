@@ -87,3 +87,12 @@ Channel IDs (from Node.js demos):
 
 - **Logcat**: `adb logcat -s WayrenApp`
 - **Chrome DevTools**: `chrome://inspect` (WebView remote debugging enabled)
+
+## IDE Note: Proto generated stubs not resolved
+
+With AGP 9.x + protobuf plugin, generated Java files end up in `app/build/generated/java/generateDebugProto/`. The IDE doesn't auto-detect them. Fix:
+
+1. **File → Project Structure → Modules → app → Sources tab**
+2. Click `+` → "Add Content Root" → navigate to `app/build/generated/java/generateDebugProto/`
+3. In the tree, separately mark **both** the `java/` and `grpc/` subdirectories as blue "Sources" root
+4. Do NOT mark the parent `generateDebugProto` as source — only the two subdirectories
