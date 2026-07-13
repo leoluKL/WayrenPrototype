@@ -55,8 +55,9 @@ class MainActivity : AppCompatActivity() {
 
         // Continuously monitor the Wayren Companion service connection in the background.
         // Updates isConnected; frontend can query via getConnectionStatus bridge call.
+        // Also auto-launches a stream-logging loop once connected.
         lifecycleScope.launch {
-            grpcClient.detectChannelState()
+            grpcClient.detectChannelState(lifecycleScope)
         }
     }
 

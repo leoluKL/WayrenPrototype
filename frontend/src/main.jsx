@@ -12,7 +12,7 @@ createRoot(document.getElementById('root')).render(
 
 /* sample usage
 import React, { useEffect, useState } from 'react';
-import { callNativeApi, subscribeToNativeStream } from './nativeBridge'; // Import both bridge handlers
+import { callNativeApi, subscribeToNativeInternalStream } from './nativeBridge'; // Import both bridge handlers
 
 // Define interfaces for strong typing
 interface UserProfile {
@@ -45,8 +45,8 @@ export function UserProfileDashboard() {
 
   // Hook 2: Handles the real-time continuous gRPC stream
   useEffect(() => {
-    // Starts the stream -> WebAppInterface.startNativeStream -> listens to gRPC stream events
-    const unsubscribe = subscribeToNativeStream<PriceTick>(
+    // Starts the stream -> WebAppInterface.startNativeInternalStream -> listens to gRPC stream events
+    const unsubscribe = subscribeToNativeInternalStream<PriceTick>(
       'subscribePriceStream',
       { market: 'USDT' }, // Initialization parameters passed down to Kotlin
       (newStreamData) => {
@@ -55,7 +55,7 @@ export function UserProfileDashboard() {
       }
     );
 
-    // CRITICAL CLEANUP: When this component unmounts, this fires WebAppInterface.stopNativeStream
+    // CRITICAL CLEANUP: When this component unmounts, this fires WebAppInterface.stopNativeInternalStream
     return () => {
       unsubscribe();
     };

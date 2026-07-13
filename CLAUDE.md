@@ -17,7 +17,7 @@ React Frontend (WebView)
 ## Key Design Decisions
 
 - **gRPC on localhost**: Wayren Companion binds to `127.0.0.1:7073` on the same phone. Insecure/plaintext is fine — no network exposure.
-- **Dual bridge pattern**: `callNativeApi()` for request/response, `subscribeToNativeStream()` for streaming.
+- **Dual bridge pattern**: `callNativeApi()` for request/response, `subscribeToNativeInternalStream()` for streaming.
 - **Auto-reconnect**: `GrpcClient.waitForService()` keeps pinging every 3s until the companion is reachable.
 - **All logs use tag**: `WayrenApp`
 
@@ -77,9 +77,9 @@ Channel IDs (from Node.js demos):
 ## Source Files
 
 - `app/.../MainActivity.kt` — Single activity, sets up WebView + WebViewAssetLoader + bridge
-- `app/.../WebAppInterface.kt` — @JavascriptInterface bridge (sendToNative, startNativeStream, stopNativeStream)
+- `app/.../WebAppInterface.kt` — @JavascriptInterface bridge (sendToNative, startNativeInternalStream, stopNativeInternalStream)
 - `app/.../GrpcClient.kt` — gRPC channel + stub manager with auto-reconnect
-- `frontend/src/nativeBridge.ts` — TypeScript bridge (callNativeApi, subscribeToNativeStream)
+- `frontend/src/nativeBridge.ts` — TypeScript bridge (callNativeApi, subscribeToNativeInternalStream)
 - `frontend/src/App.jsx` — Main React component (scaffold, to be replaced)
 - `frontend/copy-build.js` — Deploy script: builds frontend, copies to Android assets
 

@@ -50,13 +50,13 @@ export async function callNativeApi<T = any>(action: string, payload: any = {}):
 }
 
 /**
- * subscribeToNativeStream is for frontend ui subscribes to a real-time stream from Kotlin
+ * subscribeToNativeInternalStream is for frontend ui subscribes to a real-time stream from Kotlin
  * @param action The streaming action name (e.g., 'subscribePriceStream')
  * @param payload Initialization parameters for the stream
  * @param onData Callback function executed every time new stream data arrives
  * @return A function to unsubscribe and close the stream
  */
-export function subscribeToNativeStream<T = any>(
+export function subscribeToNativeInternalStream<T = any>(
   action: string,
   payload: any,
   onData: (data: T) => void
@@ -71,7 +71,7 @@ export function subscribeToNativeStream<T = any>(
   if ((window as any).AndroidBridge) {
     const jsonString = JSON.stringify(payload);
     // Tell Kotlin to start the gRPC stream and pass it the streamId channel
-    (window as any).AndroidBridge.startNativeStream(action, jsonString, streamId);
+    (window as any).AndroidBridge.startNativeInternalStream(action, jsonString, streamId);
   } else {
     console.warn(`AndroidBridge not found. Mocking active stream for: ${action}`);
     // Simulated Desktop browser mock stream interval
@@ -84,7 +84,7 @@ export function subscribeToNativeStream<T = any>(
     streamListeners.delete(streamId);
     if ((window as any).AndroidBridge) {
       // Notify Kotlin to cancel the gRPC network collection and save memory/battery
-      (window as any).AndroidBridge.stopNativeStream(streamId);
+      (window as any).AndroidBridge.stopNativeInternalStream(streamId);
     }
   };
 }

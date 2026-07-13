@@ -6,8 +6,13 @@ import com.google.protobuf.Empty
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 import io.grpc.StatusRuntimeException
+import io.grpc.stub.StreamObserver
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.seconds
 import java.util.concurrent.TimeUnit
@@ -45,6 +50,9 @@ class GrpcClient(
     private val stub: ee.wayren.icp.services.grpc.MessageServiceGrpc.MessageServiceBlockingStub =
         ee.wayren.icp.services.grpc.MessageServiceGrpc.newBlockingStub(channel)
 
+    private val asyncStub: ee.wayren.icp.services.grpc.MessageServiceGrpc.MessageServiceStub =
+        ee.wayren.icp.services.grpc.MessageServiceGrpc.newStub(channel)
+
     /**
      * Sends a Ping RPC to verify the Wayren Companion service is reachable.
      * Returns true if the service responded successfully, false otherwise.
@@ -66,8 +74,10 @@ class GrpcClient(
      * Continuously monitors the connection to the Wayren Companion service.
      * Pings every [RETRY_INTERVAL] and updates [isConnected].
      * Designed to be launched as a background coroutine that runs forever.
+     *
+     * @param appScope used to launch the stream-logging coroutine on first connect.
      */
-    suspend fun detectChannelState() {
+    suspend fun detectChannelState(appScope: CoroutineScope = GlobalScope) {
         Log.i(TAG, "Starting continuous channel state detection at $host:$port...")
         while (true) {
             val success = ping()
@@ -80,6 +90,11 @@ class GrpcClient(
                     val testText = "WayrenPrototype connected at ${System.currentTimeMillis()}"
                     val sent = createMessage(testText, "WayrenProto")
                     Log.i(TAG, "Auto-send test message: ${if (sent) "sent" else "failed"}")
+
+                    // Also start stream logging for all new messages
+                    appScope.launch(Dispatchers.IO) {
+                        streamLoggingLoop()
+                    }
                 }
             } else {
                 if (isConnected) {
@@ -161,6 +176,62 @@ class GrpcClient(
         } catch (e: Exception) {
             Log.e(TAG, "CreateMessage failed: ${e.message}")
             false
+        }
+    }
+
+    /**
+     * Opens a server-streaming connection to StreamAllNewMessages.
+     * Each received message is delivered to the [observer].
+     */
+    fun streamAllNewMessages(observer: StreamObserver<ee.wayren.icp.messages.Messages.Message>) {
+        asyncStub.streamAllNewMessages(Empty.getDefaultInstance(), observer)
+    }
+
+    /**
+     * Background loop that logs all incoming stream messages.
+     */
+    private suspend fun streamLoggingLoop() {
+        val channel = Channel<ee.wayren.icp.messages.Messages.Message>(Channel.UNLIMITED)
+        Log.i(TAG, "Stream logging started — waiting for messages...")
+
+        streamAllNewMessages(object : StreamObserver<ee.wayren.icp.messages.Messages.Message> {
+            override fun onNext(value: ee.wayren.icp.messages.Messages.Message) {
+                channel.trySend(value)
+            }
+            override fun onError(t: Throwable) {
+                Log.e(TAG, "Stream logging error: ${t.message}")
+                channel.close(t)
+            }
+            override fun onCompleted() {
+                channel.close()
+            }
+        })
+
+        for (msg in channel) {
+            val header = msg.header
+            val channelId = header.channel.toULong()
+
+            // Parse the data bytes as a WayrenChat Envelope (same as stream.js)
+            val parsed = try {
+                val envelope = ee.wayren.chat.WayrenChat.Envelope.parseFrom(msg.data)
+                when {
+                    envelope.hasTextMessage() -> {
+                        val tm = envelope.textMessage
+                        "text_message from \"${tm.callsign}\": \"${tm.text}\""
+                    }
+                    envelope.hasAckMessage() -> {
+                        "ack_message from \"${envelope.ackMessage.callsign}\""
+                    }
+                    envelope.hasEncMessage() -> {
+                        "encrypted_message (fingerprint=${envelope.encMessage.fingerprint})"
+                    }
+                    else -> "unknown_envelope_format"
+                }
+            } catch (e: Exception) {
+                "parsing_error: ${e.message}"
+            }
+
+            Log.i(TAG, "Incoming message — channel=$channelId | $parsed")
         }
     }
 }
