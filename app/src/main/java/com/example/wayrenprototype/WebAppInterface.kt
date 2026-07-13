@@ -3,6 +3,7 @@ package com.example.wayrenprototype
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import kotlinx.coroutines.*
+import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
 class WebAppInterface(
@@ -24,6 +25,7 @@ class WebAppInterface(
             val jsonResponse = when (action) {
                 "ping" -> handleGrpcPing()
                 "getConnectionStatus" -> handleGetConnectionStatus()
+                "sendMessage" -> handleSendMessage(jsonPayload)
                 else -> "{\"error\": \"Unknown action: $action\"}"
             }
 
@@ -82,6 +84,35 @@ class WebAppInterface(
     private fun handleGetConnectionStatus(): String {
         val status = if (grpcClient.isConnected) "connected" else "disconnected"
         return """{"status": "$status"}"""
+    }
+
+    private suspend fun handleSendMessage(jsonPayload: String): String {
+        return try {
+            val payload = JSONObject(jsonPayload)
+            val text = payload.optString("text", "")
+            val callsign = payload.optString("callsign", "Android App")
+
+            val channelStr = payload.optString("channel", "")
+            val channel = if (channelStr.isNotEmpty()) {
+                channelStr.toULong()
+            } else {
+                null // will use default in createMessage
+            }
+
+            val success = if (channel != null) {
+                grpcClient.createMessage(text, callsign, channel)
+            } else {
+                grpcClient.createMessage(text, callsign)
+            }
+
+            if (success) {
+                """{"status": "ok", "message": "Message sent"}"""
+            } else {
+                """{"status": "error", "message": "Failed to send message"}"""
+            }
+        } catch (e: Exception) {
+            """{"status": "error", "message": "sendMessage failed: ${e.message}"}"""
+        }
     }
 
     private suspend fun handleGrpcPing(): String {

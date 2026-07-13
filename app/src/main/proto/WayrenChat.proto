@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+import "Services.proto";
+import "Common.proto";
+
+package ee.wayren.chat;
+
+message Envelope {
+    oneof message {
+        TextMessage text_message = 1;
+        AckMessage ack_message = 4;
+        EncryptedMessage enc_message = 5;
+    }
+
+    reserved 2, 3;
+    reserved "audio_message", "file_message";
+}
+
+// Wraps one of the other message types with E2E encryption
+message EncryptedMessage {
+    uint32 fingerprint = 1;
+    bytes data = 2;
+}
+
+message AckMessage {
+    string callsign = 1;
+    ee.wayren.icp.common.Uuid message_id = 2;
+}
+
+message TextMessage {
+    string callsign = 1;
+    string text = 2;
+    repeated Attachment attachments = 3;
+}
+
+message GenericFile {
+    string content_type = 1;
+    string name = 2;
+    bytes data = 3;
+}
+
+message Attachment {
+    oneof attachment_type {
+        GenericFile generic_file = 1;
+        EncodedAudio encoded_audio = 2;
+    }
+}
+
+message EncodedAudio {
+    AudioCodec codec = 1;
+    bytes data = 2;
+}
+
+enum AudioCodec {
+    WR_CODEC2 = 0;
+}

@@ -1,6 +1,7 @@
 package com.example.wayrenprototype
 
 import android.util.Log
+import com.google.protobuf.ByteString
 import com.google.protobuf.Empty
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
@@ -24,6 +25,9 @@ class GrpcClient(
     companion object {
         private const val TAG = "WayrenApp"
         private const val DEFAULT_RETRY_INTERVAL_MS = 3000L
+
+        // Channel IDs (uint64). ALLCONCHANNEL exceeds Long.MAX_VALUE so we store as ULong.
+        private val ALLCONCHANNEL = 16140341465198178175uL
     }
 
     /** Whether we've ever successfully connected to the service. */
@@ -70,6 +74,11 @@ class GrpcClient(
                 if (!isConnected) {
                     isConnected = true
                     Log.i(TAG, "Connection established — Wayren Companion is reachable")
+
+                    // Auto-send a test message to verify the connection end-to-end
+                    val testText = "WayrenPrototype connected at ${System.currentTimeMillis()}"
+                    val sent = createMessage(testText, "WayrenProto")
+                    Log.i(TAG, "Auto-send test message: ${if (sent) "sent" else "failed"}")
                 }
             } else {
                 if (isConnected) {
@@ -94,6 +103,63 @@ class GrpcClient(
             }
         } catch (e: InterruptedException) {
             channel.shutdownNow()
+        }
+    }
+
+    /**
+     * Sends a chat message via the CreateMessage RPC.
+     * Builds an Envelope → TextMessage application-layer payload, wraps it in a
+     * NewMessage with header + metadata, and transmits over gRPC.
+     *
+     * @param text      The message text content.
+     * @param callsign  The sender callsign.
+     * @param channel   Destination channel ID (uint64). Defaults to ALLCONCHANNEL.
+     * @return true if the message was sent successfully.
+     */
+    suspend fun createMessage(
+        text: String,
+        callsign: String,
+        channel: ULong = ALLCONCHANNEL
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            // 1. Build the application-layer Envelope containing a TextMessage
+            val textMessage = ee.wayren.chat.WayrenChat.TextMessage.newBuilder()
+                .setCallsign(callsign)
+                .setText(text)
+                .build()
+
+            val envelope = ee.wayren.chat.WayrenChat.Envelope.newBuilder()
+                .setTextMessage(textMessage)
+                .build()
+
+            val encodedData = envelope.toByteArray()
+
+            // 2. Wrap in the transport-layer NewMessage
+            val header = ee.wayren.icp.services.Services.NewMessageHeader.newBuilder()
+                .setChannel(channel.toLong())
+                .setPriority(10)
+                .build()
+
+            val metadata = ee.wayren.icp.services.Services.NewMessageMetadata.newBuilder()
+                .setShouldSync(true)
+                .build()
+
+            val newMessage = ee.wayren.icp.services.Services.NewMessage.newBuilder()
+                .setHeader(header)
+                .setData(ByteString.copyFrom(encodedData))
+                .setMetadata(metadata)
+                .build()
+
+            // 3. Transmit
+            stub.createMessage(newMessage)
+            Log.i(TAG, "Message sent (channel=$channel): \"$text\"")
+            true
+        } catch (e: StatusRuntimeException) {
+            Log.w(TAG, "CreateMessage failed (transient): ${e.status.code}")
+            false
+        } catch (e: Exception) {
+            Log.e(TAG, "CreateMessage failed: ${e.message}")
+            false
         }
     }
 }
