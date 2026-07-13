@@ -55,11 +55,10 @@ class MainActivity : AppCompatActivity() {
         // Load via the secure app domain instead of file://
         webView.loadUrl("https://appassets.androidplatform.net/assets/www/index.html")
 
-        // Keep trying to reach the Wayren Companion service in the background.
-        // Automatically succeeds when the companion app is started.
+        // Continuously monitor the Wayren Companion service connection in the background.
+        // Updates isConnected; frontend can query via getConnectionStatus bridge call.
         lifecycleScope.launch {
-            grpcClient.waitForService()
-            Log.i(TAG, "Wayren Companion service is ready")
+            grpcClient.detectChannelState()
         }
     }
 

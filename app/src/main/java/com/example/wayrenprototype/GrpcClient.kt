@@ -14,8 +14,8 @@ import java.util.concurrent.TimeUnit
  * Manages the gRPC connection to the Wayren Companion service running on the same device.
  * The service binds to 127.0.0.1:7073, so communication stays local and insecure.
  *
- * Automatically retries connections — the gRPC OkHttp transport handles reconnection
- * internally, and [waitForService] keeps polling until the service is reachable.
+ * Automatically detects connection state — [detectChannelState] polls the service
+ * every 3 seconds and updates [isConnected] for the frontend to query.
  */
 class GrpcClient(
     private val host: String = "127.0.0.1",
@@ -33,7 +33,7 @@ class GrpcClient(
 
     private val channel: ManagedChannel = ManagedChannelBuilder.forAddress(host, port)
         .usePlaintext()           // localhost loopback, no TLS needed
-        .keepAliveTime(30, TimeUnit.SECONDS)
+        .keepAliveTime(15, TimeUnit.SECONDS)
         .keepAliveTimeout(10, TimeUnit.SECONDS)
         .build()
 
@@ -47,10 +47,6 @@ class GrpcClient(
     suspend fun ping(): Boolean = withContext(Dispatchers.IO) {
         try {
             stub.ping(Empty.getDefaultInstance())
-            if (!isConnected) {
-                isConnected = true
-                Log.i(TAG, "Connection established — Wayren Companion is reachable")
-            }
             true
         } catch (e: StatusRuntimeException) {
             Log.w(TAG, "Ping failed (transient): ${e.status.code}")
@@ -62,15 +58,25 @@ class GrpcClient(
     }
 
     /**
-     * Keeps pinging until the service is reachable.
-     * Designed to be launched as a background coroutine — it will keep retrying
-     * until successful or the coroutine is cancelled.
+     * Continuously monitors the connection to the Wayren Companion service.
+     * Pings every [DEFAULT_RETRY_INTERVAL_MS] and updates [isConnected].
+     * Designed to be launched as a background coroutine that runs forever.
      */
-    suspend fun waitForService() {
-        if (isConnected) return
-        Log.i(TAG, "Waiting for Wayren Companion service at $host:$port...")
+    suspend fun detectChannelState() {
+        Log.i(TAG, "Starting continuous channel state detection at $host:$port...")
         while (true) {
-            if (ping()) return
+            val success = ping()
+            if (success) {
+                if (!isConnected) {
+                    isConnected = true
+                    Log.i(TAG, "Connection established — Wayren Companion is reachable")
+                }
+            } else {
+                if (isConnected) {
+                    isConnected = false
+                    Log.w(TAG, "Connection lost — Wayren Companion is unreachable")
+                }
+            }
             delay(DEFAULT_RETRY_INTERVAL_MS)
         }
     }

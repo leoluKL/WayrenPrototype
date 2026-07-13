@@ -23,6 +23,7 @@ class WebAppInterface(
             // 1. Process your action and incoming payload
             val jsonResponse = when (action) {
                 "ping" -> handleGrpcPing()
+                "getConnectionStatus" -> handleGetConnectionStatus()
                 else -> "{\"error\": \"Unknown action: $action\"}"
             }
 
@@ -77,6 +78,11 @@ class WebAppInterface(
     }
 
 
+
+    private fun handleGetConnectionStatus(): String {
+        val status = if (grpcClient.isConnected) "connected" else "disconnected"
+        return """{"status": "$status"}"""
+    }
 
     private suspend fun handleGrpcPing(): String {
         return try {
