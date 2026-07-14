@@ -12,6 +12,7 @@
       <w>proto</w>
       <w>protobuf</w>
       <w>wayren</w>
+      <w>wayrenChannelId</w>
     </words>
   </dictionary>
 </component>

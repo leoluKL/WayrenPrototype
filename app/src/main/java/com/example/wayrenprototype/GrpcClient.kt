@@ -9,7 +9,6 @@ import io.grpc.StatusRuntimeException
 import io.grpc.stub.StreamObserver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -76,7 +75,7 @@ class GrpcClient(
      *
      * @param appScope used to launch the stream-logging coroutine on first connect.
      */
-    suspend fun detectGrpcChannelState(appScope: CoroutineScope = GlobalScope) {
+    suspend fun detectGrpcChannelState(appScope: CoroutineScope) {
         Log.i(TAG, "Starting continuous channel state detection at $host:$port...")
         while (true) {
             val success = ping()
