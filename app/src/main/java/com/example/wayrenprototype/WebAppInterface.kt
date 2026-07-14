@@ -29,6 +29,7 @@ class WebAppInterface(
                 "pinggRPC" -> handleGrpcPing()
                 "getgRPCConnectionStatus" -> handleGetConnectionStatus()
                 "sendWayrenMessage" -> handleSendMessage(jsonPayload)
+                "createWayrenChannel" -> handleCreateWayrenChannel(jsonPayload)
                 else -> "{\"error\": \"Unknown action: $action\"}"
             }
 
@@ -205,6 +206,24 @@ class WebAppInterface(
             }
         } catch (e: Exception) {
             """{"status": "error", "message": "sendMessage failed: ${e.message}"}"""
+        }
+    }
+
+    private suspend fun handleCreateWayrenChannel(jsonPayload: String): String {
+        return try {
+            val payload = JSONObject(jsonPayload)
+            val name = payload.optString("name", "")
+            if (name.isEmpty()) {
+                return """{"status": "error", "message": "name is required"}"""
+            }
+            val channel = grpcClient.createWayrenChannel(name)
+            if (channel != null) {
+                """{"status": "ok", "id": ${channel.id.toULong()}, "name": "${channel.name}"}"""
+            } else {
+                """{"status": "error", "message": "Failed to create channel"}"""
+            }
+        } catch (e: Exception) {
+            """{"status": "error", "message": "createWayrenChannel failed: ${e.message}"}"""
         }
     }
 

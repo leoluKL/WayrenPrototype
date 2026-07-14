@@ -178,6 +178,30 @@ class GrpcClient(
     }
 
     /**
+     * Creates a new Wayren channel with the given name.
+     * The server generates the channel ID (CRC64).
+     *
+     * @param name Human-readable channel name (e.g. "OP-ALPHA").
+     * @return The created [ee.wayren.icp.channels.Channels.Channel] or null on failure.
+     */
+    suspend fun createWayrenChannel(name: String): ee.wayren.icp.channels.Channels.Channel? = withContext(Dispatchers.IO) {
+        try {
+            val newChannel = ee.wayren.icp.services.Services.NewChannel.newBuilder()
+                .setName(name)
+                .build()
+            val result = stub.createChannel(newChannel)
+            Log.i(TAG, "Channel created: ${result.name} (${result.id.toULong()})")
+            result
+        } catch (e: StatusRuntimeException) {
+            Log.w(TAG, "CreateChannel failed (transient): ${e.status.code}")
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "CreateChannel failed: ${e.message}")
+            null
+        }
+    }
+
+    /**
      * Opens a server-streaming connection to StreamAllNewMessages.
      * Each received message is delivered to the [observer].
      */
