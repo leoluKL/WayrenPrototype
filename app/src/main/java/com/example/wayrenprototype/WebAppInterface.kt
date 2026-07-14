@@ -29,6 +29,7 @@ class WebAppInterface(
             val jsonResponse = when (action) {
                 "pinggRPC" -> handleGrpcPing()
                 "getgRPCConnectionStatus" -> handleGetConnectionStatus()
+                "getDeviceName" -> handleGetDeviceName()
                 "sendWayrenMessage" -> handleSendWayrenChatMessage(jsonPayload)
                 "sendC2Payload" -> handleSendC2Payload(jsonPayload)
                 "createWayrenChannel" -> handleCreateWayrenChannel(jsonPayload)
@@ -84,6 +85,12 @@ class WebAppInterface(
     private fun handleGetConnectionStatus(): String {
         val status = if (grpcClient.isConnected) "connected" else "disconnected"
         return """{"status": "$status"}"""
+    }
+
+    private fun handleGetDeviceName(): String {
+        val name = android.bluetooth.BluetoothAdapter.getDefaultAdapter()?.name
+            ?: android.os.Build.MODEL
+        return """{"name": "$name"}"""
     }
 
     /**
