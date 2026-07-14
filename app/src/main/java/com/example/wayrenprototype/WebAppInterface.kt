@@ -5,6 +5,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import io.grpc.stub.StreamObserver
 import kotlinx.coroutines.*
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
@@ -28,7 +29,8 @@ class WebAppInterface(
             val jsonResponse = when (action) {
                 "pinggRPC" -> handleGrpcPing()
                 "getgRPCConnectionStatus" -> handleGetConnectionStatus()
-                "sendWayrenMessage" -> handleSendMessage(jsonPayload)
+                "sendWayrenMessage" -> handleSendWayrenChatMessage(jsonPayload)
+                "sendC2Payload" -> handleSendC2Payload(jsonPayload)
                 "createWayrenChannel" -> handleCreateWayrenChannel(jsonPayload)
                 else -> "{\"error\": \"Unknown action: $action\"}"
             }
@@ -91,10 +93,10 @@ class WebAppInterface(
      *    └─ StreamObserver.onNext(msg)  →  wayrenMsgQueue.trySend(msg)
      *
      * 2. Queue:       buffers messages between gRPC callback and coroutine loop
-     *    └─ for (message in wayrenMsgQueue)  →  parseEnvelope(message)
+     *    └─ for (message in wayrenMsgQueue)  →  parseMessageData(message)
      *
-     * 3. Parse:        Decodes `Message.data` bytes as WayrenChat Envelope
-     *    └─ returns JSON: {"type":"text_message","author":"...","msg":"...","channel":...}
+     * 3. Parse:        Decodes `Message.data` bytes as C2Payload (our app's format only)
+     *    └─ returns JSON: {"type":"c2_chat","from":"...","text":"...","channel":...}
      *
      * 4. Internal stream: pushes JSON to WebView via evaluateJavascript
      *    └─ window.handleAndroidStreamEvent(streamId, JSON)
@@ -118,7 +120,7 @@ class WebAppInterface(
         })
 
         for (message in wayrenMsgQueue) {
-            val json = parseEnvelope(message)
+            val json = parseMessageData(message) ?: continue // skip non-C2Payload messages
             withContext(Dispatchers.Main) {
                 webView.evaluateJavascript(
                     "window.handleAndroidStreamEvent('$streamId', `$json`);",
@@ -157,30 +159,45 @@ class WebAppInterface(
         }
     }
 
-    /** Decodes `Message.data` bytes as a WayrenChat Envelope and returns a JSON string. */
-    private fun parseEnvelope(message: ee.wayren.icp.messages.Messages.Message): String {
+    /**
+     * Decodes `Message.data` bytes as C2Payload (our app's format only).
+     * Returns null if the message is not a valid C2Payload (e.g. WayrenChat messages from
+     * other apps on the network are silently skipped).
+     */
+    private fun parseMessageData(message: ee.wayren.icp.messages.Messages.Message): String? {
+        val channel = message.header.channel
         return try {
-            val envelope = ee.wayren.chat.WayrenChat.Envelope.parseFrom(message.data)
-            val header = message.header
-            val channel = header.channel
-
-            if (envelope.hasTextMessage()) {
-                val tm = envelope.textMessage
-                """{"type":"text_message","author":"${tm.callsign}","msg":"${tm.text}","channel":$channel}"""
-            } else if (envelope.hasAckMessage()) {
-                val am = envelope.ackMessage
-                """{"type":"ack_message","author":"${am.callsign}","channel":$channel}"""
-            } else if (envelope.hasEncMessage()) {
-                """{"type":"encrypted_message","fingerprint":${envelope.encMessage.fingerprint},"channel":$channel}"""
-            } else {
-                """{"type":"unknown_envelope"}"""
-            }
-        } catch (e: Exception) {
-            """{"type":"parsing_error","error":"${e.message}"}"""
+            val c2 = com.wayrenprototype.c2.C2.C2Payload.parseFrom(message.data)
+            parseC2Payload(c2, channel)
+        } catch (_: Exception) {
+            null
         }
     }
 
-    private suspend fun handleSendMessage(jsonPayload: String): String {
+    /** Decodes a C2Payload and returns a JSON string for the frontend. */
+    private fun parseC2Payload(payload: com.wayrenprototype.c2.C2.C2Payload, channel: Long): String {
+        return when {
+            payload.hasChat() -> {
+                val chat = payload.chat
+                """{"type":"c2_chat","from":"${chat.fromCallsign}","text":"${chat.text}","channel":$channel}"""
+            }
+            payload.hasGisObject() -> {
+                val gis = payload.gisObject
+                """{"type":"c2_gis_object","object_id":"${gis.objectId}","name":"${gis.name}","channel":$channel}"""
+            }
+            payload.hasTacticalDraw() -> {
+                val draw = payload.tacticalDraw
+                """{"type":"c2_tactical_draw","draw_id":"${draw.drawId}","name":"${draw.name}","channel":$channel}"""
+            }
+            payload.hasImage() -> {
+                val img = payload.image
+                """{"type":"c2_image","image_id":"${img.imageId}","mime":"${img.mimeType}","channel":$channel}"""
+            }
+            else -> """{"type":"c2_unknown","channel":$channel}"""
+        }
+    }
+
+    private suspend fun handleSendWayrenChatMessage(jsonPayload: String): String {
         return try {
             val payload = JSONObject(jsonPayload)
             val text = payload.optString("text", "")
@@ -190,13 +207,13 @@ class WebAppInterface(
             val wayrenChannelId = if (wayrenChannelIdStr.isNotEmpty()) {
                 wayrenChannelIdStr.toULong()
             } else {
-                null // will use default in createWayrenMessage
+                null // will use default in sendWayrenMessage
             }
 
             val success = if (wayrenChannelId != null) {
-                grpcClient.createWayrenMessage(text, callsign, wayrenChannelId)
+                grpcClient.sendWayrenMessage(text, callsign, wayrenChannelId)
             } else {
-                grpcClient.createWayrenMessage(text, callsign)
+                grpcClient.sendWayrenMessage(text, callsign)
             }
 
             if (success) {
@@ -207,6 +224,158 @@ class WebAppInterface(
         } catch (e: Exception) {
             """{"status": "error", "message": "sendMessage failed: ${e.message}"}"""
         }
+    }
+
+    private suspend fun handleSendC2Payload(jsonPayload: String): String {
+        return try {
+            val payload = JSONObject(jsonPayload)
+            val type = payload.optString("type", "")
+            val dataObj = payload.optJSONObject("data")
+                ?: return """{"status":"error","message":"data object required"}"""
+            val wayrenChannelIdStr = payload.optString("channel", "")
+            if (wayrenChannelIdStr.isEmpty()) {
+                return """{"status":"error","message":"channel required"}"""
+            }
+            val wayrenChannelId = wayrenChannelIdStr.toULong()
+
+            val c2Payload = buildC2Payload(type, dataObj)
+
+            val success = grpcClient.sendC2Message(c2Payload, wayrenChannelId)
+            if (success) {
+                """{"status": "ok"}"""
+            } else {
+                """{"status": "error", "message": "Failed to send C2Payload"}"""
+            }
+        } catch (e: Exception) {
+            """{"status": "error", "message": "sendC2Payload failed: ${e.message}"}"""
+        }
+    }
+
+    private fun buildC2Payload(type: String, data: JSONObject): com.wayrenprototype.c2.C2.C2Payload {
+        return when (type) {
+            "chat" -> {
+                val chatBuilder = com.wayrenprototype.c2.C2.C2Chat.newBuilder()
+                    .setFromCallsign(data.optString("from_callsign", "Android App"))
+                    .setText(data.optString("text", ""))
+                // Optional: to_callsigns
+                val toCallsignsArr = data.optJSONArray("to_callsigns")
+                if (toCallsignsArr != null) {
+                    for (i in 0 until toCallsignsArr.length()) {
+                        chatBuilder.addToCallsigns(toCallsignsArr.optString(i))
+                    }
+                }
+                // Optional: reply_to_message_id
+                if (data.has("reply_to_message_id")) {
+                    chatBuilder.setReplyToMessageId(data.optString("reply_to_message_id"))
+                }
+                // Optional: priority
+                if (data.has("priority")) {
+                    chatBuilder.setPriority(data.optInt("priority"))
+                }
+                com.wayrenprototype.c2.C2.C2Payload.newBuilder()
+                    .setChat(chatBuilder.build())
+                    .build()
+            }
+            "gis_object" -> {
+                val gisBuilder = com.wayrenprototype.c2.C2.C2GISObject.newBuilder()
+                    .setObjectId(data.optString("object_id", ""))
+                    .setName(data.optString("name", ""))
+                // Enum fields
+                val actionStr = data.optString("action", "OBJECT_ADD")
+                gisBuilder.action = com.wayrenprototype.c2.C2.ObjectAction.valueOf(actionStr)
+                val affiliationStr = data.optString("affiliation", "AFFILIATION_UNKNOWN")
+                gisBuilder.affiliation = com.wayrenprototype.c2.C2.ObjectAffiliation.valueOf(affiliationStr)
+                // Optional: tags
+                val tagsArr = data.optJSONArray("tags")
+                if (tagsArr != null) {
+                    for (i in 0 until tagsArr.length()) {
+                        gisBuilder.addTags(tagsArr.optString(i))
+                    }
+                }
+                // Optional: position
+                val posObj = data.optJSONObject("position")
+                if (posObj != null) {
+                    gisBuilder.position = buildCoordinate(posObj)
+                }
+                // Optional: course, speed, icon, parent_object_id
+                if (data.has("course")) gisBuilder.course = data.optDouble("course")
+                if (data.has("speed")) gisBuilder.speed = data.optDouble("speed")
+                if (data.has("icon")) gisBuilder.icon = data.optString("icon")
+                if (data.has("parent_object_id")) gisBuilder.parentObjectId = data.optString("parent_object_id")
+
+                com.wayrenprototype.c2.C2.C2Payload.newBuilder()
+                    .setGisObject(gisBuilder.build())
+                    .build()
+            }
+            "tactical_draw" -> {
+                val drawBuilder = com.wayrenprototype.c2.C2.C2TacticalDraw.newBuilder()
+                    .setDrawId(data.optString("draw_id", ""))
+                    .setName(data.optString("name", ""))
+                // Shape enum
+                val shapeStr = data.optString("shape", "SHAPE_LINE")
+                drawBuilder.shape = com.wayrenprototype.c2.C2.ShapeType.valueOf(shapeStr)
+                // Optional: points
+                val pointsArr = data.optJSONArray("points")
+                if (pointsArr != null) {
+                    for (i in 0 until pointsArr.length()) {
+                        val ptObj = pointsArr.optJSONObject(i)
+                        if (ptObj != null) {
+                            drawBuilder.addPoints(buildCoordinate(ptObj))
+                        }
+                    }
+                }
+                // Optional: color, stroke_width, fill_opacity
+                if (data.has("color")) drawBuilder.color = data.optString("color")
+                if (data.has("stroke_width")) drawBuilder.strokeWidth = data.optInt("stroke_width")
+                if (data.has("fill_opacity")) drawBuilder.fillOpacity = data.optInt("fill_opacity")
+                // Optional: circle_center, circle_radius_meters
+                val centerObj = data.optJSONObject("circle_center")
+                if (centerObj != null) {
+                    drawBuilder.circleCenter = buildCoordinate(centerObj)
+                }
+                if (data.has("circle_radius_meters")) drawBuilder.circleRadiusMeters = data.optDouble("circle_radius_meters")
+
+                com.wayrenprototype.c2.C2.C2Payload.newBuilder()
+                    .setTacticalDraw(drawBuilder.build())
+                    .build()
+            }
+            "image" -> {
+                val imgBuilder = com.wayrenprototype.c2.C2.C2Image.newBuilder()
+                    .setImageId(data.optString("image_id", ""))
+                    .setMimeType(data.optString("mime_type", "image/png"))
+                    .setFromCallsign(data.optString("from_callsign", "Android App"))
+                // Optional: data (base64 encoded string from frontend)
+                val dataStr = data.optString("data", "")
+                if (dataStr.isNotEmpty()) {
+                    imgBuilder.data = com.google.protobuf.ByteString.copyFrom(
+                        android.util.Base64.decode(dataStr, android.util.Base64.DEFAULT)
+                    )
+                }
+                // Optional: caption
+                if (data.has("caption")) imgBuilder.caption = data.optString("caption")
+                // Optional: geotag
+                val geoObj = data.optJSONObject("geotag")
+                if (geoObj != null) {
+                    imgBuilder.geotag = buildCoordinate(geoObj)
+                }
+
+                com.wayrenprototype.c2.C2.C2Payload.newBuilder()
+                    .setImage(imgBuilder.build())
+                    .build()
+            }
+            else -> throw IllegalArgumentException("Unknown C2Payload type: $type")
+        }
+    }
+
+    /** Parses a JSON object with lat/lng/alt into a C2 Coordinate. */
+    private fun buildCoordinate(json: JSONObject): com.wayrenprototype.c2.C2.Coordinate {
+        val coordBuilder = com.wayrenprototype.c2.C2.Coordinate.newBuilder()
+            .setLat(json.optDouble("lat", 0.0))
+            .setLng(json.optDouble("lng", 0.0))
+        if (json.has("alt")) {
+            coordBuilder.alt = json.optDouble("alt")
+        }
+        return coordBuilder.build()
     }
 
     private suspend fun handleCreateWayrenChannel(jsonPayload: String): String {

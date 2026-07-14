@@ -86,7 +86,7 @@ class GrpcClient(
 
                     // Auto-send a test message to verify the connection end-to-end
                     val testText = "WayrenPrototype connected at ${System.currentTimeMillis()}"
-                    val sent = createWayrenMessage(testText, "WayrenProto")
+                    val sent = sendWayrenMessage(testText, "WayrenProto")
                     Log.i(TAG, "Auto-send test message: ${if (sent) "sent" else "failed"}")
 
                     // Also start stream logging for all new messages
@@ -121,34 +121,14 @@ class GrpcClient(
     }
 
     /**
-     * Sends a chat message via the CreateMessage RPC.
-     * Builds an Envelope → TextMessage application-layer payload, wraps it in a
-     * NewMessage with header + metadata, and transmits over gRPC.
+     * Shared: wraps raw bytes in NewMessage header/metadata and transmits over gRPC.
      *
-     * @param text      The message text content.
-     * @param callsign  The sender callsign.
-     * @param wayrenChannelId   Destination channel ID (uint64). Defaults to ALLCONCHANNEL.
+     * @param data  The serialized payload bytes (any format — WayrenChat, C2Payload, etc.).
+     * @param wayrenChannelId  Destination channel ID (uint64).
      * @return true if the message was sent successfully.
      */
-    suspend fun createWayrenMessage(
-        text: String,
-        callsign: String,
-        wayrenChannelId: ULong = ALLCONCHANNEL
-    ): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun sendRawMessage(data: ByteArray, wayrenChannelId: ULong): Boolean = withContext(Dispatchers.IO) {
         try {
-            // 1. Build the application-layer Envelope containing a TextMessage
-            val textMessage = ee.wayren.chat.WayrenChat.TextMessage.newBuilder()
-                .setCallsign(callsign)
-                .setText(text)
-                .build()
-
-            val envelope = ee.wayren.chat.WayrenChat.Envelope.newBuilder()
-                .setTextMessage(textMessage)
-                .build()
-
-            val encodedData = envelope.toByteArray()
-
-            // 2. Wrap in the transport-layer NewMessage
             val header = ee.wayren.icp.services.Services.NewMessageHeader.newBuilder()
                 .setChannel(wayrenChannelId.toLong())
                 .setPriority(10)
@@ -160,13 +140,11 @@ class GrpcClient(
 
             val newMessage = ee.wayren.icp.services.Services.NewMessage.newBuilder()
                 .setHeader(header)
-                .setData(ByteString.copyFrom(encodedData))
+                .setData(ByteString.copyFrom(data))
                 .setMetadata(metadata)
                 .build()
 
-            // 3. Transmit
             stub.createMessage(newMessage)
-            Log.i(TAG, "Message sent (wayrenChannelId=$wayrenChannelId): \"$text\"")
             true
         } catch (e: StatusRuntimeException) {
             Log.w(TAG, "CreateMessage failed (transient): ${e.status.code}")
@@ -175,6 +153,55 @@ class GrpcClient(
             Log.e(TAG, "CreateMessage failed: ${e.message}")
             false
         }
+    }
+
+    /**
+     * Sends a chat message via the CreateMessage RPC.
+     * Builds an Envelope → TextMessage application-layer payload and delegates transport to [sendRawMessage].
+     *
+     * @param text      The message text content.
+     * @param callsign  The sender callsign.
+     * @param wayrenChannelId   Destination channel ID (uint64). Defaults to ALLCONCHANNEL.
+     * @return true if the message was sent successfully.
+     */
+    suspend fun sendWayrenMessage(
+        text: String,
+        callsign: String,
+        wayrenChannelId: ULong = ALLCONCHANNEL
+    ): Boolean {
+        val textMessage = ee.wayren.chat.WayrenChat.TextMessage.newBuilder()
+            .setCallsign(callsign)
+            .setText(text)
+            .build()
+
+        val envelope = ee.wayren.chat.WayrenChat.Envelope.newBuilder()
+            .setTextMessage(textMessage)
+            .build()
+
+        val success = sendRawMessage(envelope.toByteArray(), wayrenChannelId)
+        if (success) {
+            Log.i(TAG, "Message sent (wayrenChannelId=$wayrenChannelId): \"$text\"")
+        }
+        return success
+    }
+
+    /**
+     * Sends a C2Payload message via the CreateMessage RPC.
+     * Serializes the C2Payload directly into Message.data — no WayrenChat Envelope wrapper.
+     *
+     * @param payload   The C2Payload to send (chat, GIS object, tactical draw, or image).
+     * @param wayrenChannelId   Destination channel ID (uint64). Must be specified (no default).
+     * @return true if the message was sent successfully.
+     */
+    suspend fun sendC2Message(
+        payload: com.wayrenprototype.c2.C2.C2Payload,
+        wayrenChannelId: ULong
+    ): Boolean {
+        val success = sendRawMessage(payload.toByteArray(), wayrenChannelId)
+        if (success) {
+            Log.i(TAG, "C2Payload sent (wayrenChannelId=$wayrenChannelId)")
+        }
+        return success
     }
 
     /**
@@ -278,24 +305,34 @@ class GrpcClient(
             val header = msg.header
             val wayrenChannelId = header.channel.toULong()
 
-            // Parse the data bytes as a WayrenChat Envelope (same as stream.js)
+            // Try C2Payload first, then WayrenChat
+            val dataSize = msg.data.size()
             val parsed = try {
-                val envelope = ee.wayren.chat.WayrenChat.Envelope.parseFrom(msg.data)
-                when {
-                    envelope.hasTextMessage() -> {
-                        val tm = envelope.textMessage
-                        "text_message from \"${tm.callsign}\": \"${tm.text}\""
-                    }
-                    envelope.hasAckMessage() -> {
-                        "ack_message from \"${envelope.ackMessage.callsign}\""
-                    }
-                    envelope.hasEncMessage() -> {
-                        "encrypted_message (fingerprint=${envelope.encMessage.fingerprint})"
-                    }
-                    else -> "unknown_envelope_format"
+                val c2 = com.wayrenprototype.c2.C2.C2Payload.parseFrom(msg.data)
+                val typeName = when {
+                    c2.hasChat() -> "c2_chat"
+                    c2.hasGisObject() -> "c2_gis_object"
+                    c2.hasTacticalDraw() -> "c2_tactical_draw"
+                    c2.hasImage() -> "c2_image"
+                    else -> "c2_unknown"
                 }
-            } catch (e: Exception) {
-                "parsing_error: ${e.message}"
+                "$typeName (${dataSize}B)"
+            } catch (_: Exception) {
+                // Not C2Payload — try WayrenChat
+                try {
+                    val envelope = ee.wayren.chat.WayrenChat.Envelope.parseFrom(msg.data)
+                    when {
+                        envelope.hasTextMessage() -> {
+                            val tm = envelope.textMessage
+                            "text_message from \"${tm.callsign}\": \"${tm.text}\""
+                        }
+                        envelope.hasAckMessage() -> "ack_message from \"${envelope.ackMessage.callsign}\""
+                        envelope.hasEncMessage() -> "encrypted_message (fingerprint=${envelope.encMessage.fingerprint})"
+                        else -> "unknown_envelope"
+                    }
+                } catch (_: Exception) {
+                    "unknown_format (${dataSize}B)"
+                }
             }
 
             Log.i(TAG, "Incoming message — channel=$wayrenChannelId | $parsed")

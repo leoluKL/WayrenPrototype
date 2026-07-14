@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package com.wayrenprototype.c2;
+
+// ── Reusable types ──
+
+message Coordinate {
+  double lat = 1;
+  double lng = 2;
+  optional double alt = 3;
+}
+
+// ── Top-level wrapper ──
+
+message C2Payload {
+  oneof payload {
+    C2Chat          chat           = 1;
+    C2GISObject     gis_object     = 2;
+    C2TacticalDraw  tactical_draw  = 3;
+    C2Image         image          = 4;
+  }
+}
+
+// ── 1. Chat ──
+
+message C2Chat {
+  string from_callsign = 1;
+  repeated string to_callsigns = 2;
+  string text = 3;
+  optional string reply_to_message_id = 4;
+  optional uint32 priority = 5;
+}
+
+// ── 2. GIS Object ──
+
+enum ObjectAction {
+  OBJECT_ADD = 0;
+  OBJECT_UPDATE = 1;
+  OBJECT_DELETE = 2;
+}
+
+enum ObjectAffiliation {
+  AFFILIATION_FRIENDLY = 0;
+  AFFILIATION_HOSTILE  = 1;
+  AFFILIATION_NEUTRAL  = 2;
+  AFFILIATION_UNKNOWN  = 3;
+}
+
+message C2GISObject {
+  ObjectAction action = 1;
+  string object_id = 2;
+  string name = 3;
+  repeated string tags = 4;
+  ObjectAffiliation affiliation = 5;
+  Coordinate position = 6;
+  optional double course = 7;
+  optional double speed = 8;
+  optional string icon = 9;
+  optional string parent_object_id = 10;
+}
+
+// ── 3. Tactical Drawing ──
+
+enum ShapeType {
+  SHAPE_LINE      = 0;
+  SHAPE_POLYGON   = 1;
+  SHAPE_CIRCLE    = 2;
+  SHAPE_RECTANGLE = 3;
+  SHAPE_FREEHAND  = 4;
+  SHAPE_ARROW     = 5;
+}
+
+message C2TacticalDraw {
+  string draw_id = 1;
+  string name = 2;
+  ShapeType shape = 3;
+  repeated Coordinate points = 4;
+  optional string color = 5;
+  optional uint32 stroke_width = 6;
+  optional uint32 fill_opacity = 7;
+  optional Coordinate circle_center = 8;
+  optional double circle_radius_meters = 9;
+}
+
+// ── 4. Image ──
+
+message C2Image {
+  string image_id = 1;
+  bytes data = 2;
+  string mime_type = 3;
+  optional string caption = 4;
+  optional Coordinate geotag = 5;
+  string from_callsign = 6;
+}
