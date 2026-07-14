@@ -57,7 +57,7 @@ class MainActivity : AppCompatActivity() {
         // Updates isConnected; frontend can query via getConnectionStatus bridge call.
         // Also auto-launches a stream-logging loop once connected.
         lifecycleScope.launch {
-            grpcClient.detectChannelState(lifecycleScope)
+            grpcClient.detectGrpcChannelState(lifecycleScope)
         }
     }
 

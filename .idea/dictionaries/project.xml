@@ -7,9 +7,11 @@
       <w>Wayren</w>
       <w>WayrenApp</w>
       <w>callsign</w>
+      <w>gRPC</w>
       <w>javalite</w>
       <w>proto</w>
       <w>protobuf</w>
+      <w>wayren</w>
     </words>
   </dictionary>
 </component>

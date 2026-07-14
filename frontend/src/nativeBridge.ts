@@ -33,7 +33,7 @@ export async function callNativeApi<T = any>(action: string, payload: any = {}):
     // Desktop Browser Safeguard: Avoid crashes when testing on your computer
     if (!(window as any).AndroidBridge) {
       console.warn(`AndroidBridge not found. Respond mocking data for action: ${action}`);
-      if (action === 'ping') return resolve("pong");
+      if (action === 'pinggRPC') return resolve({ status: "ok", message: "pong" });
       return resolve({ status: "mock_success" } as any);
     }
 

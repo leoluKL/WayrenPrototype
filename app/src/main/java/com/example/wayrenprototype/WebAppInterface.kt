@@ -5,8 +5,6 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import io.grpc.stub.StreamObserver
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
-import kotlin.time.Duration.Companion.seconds
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
@@ -28,9 +26,9 @@ class WebAppInterface(
         scope.launch(Dispatchers.IO) {
             // 1. Process your action and incoming payload
             val jsonResponse = when (action) {
-                "ping" -> handleGrpcPing()
-                "getConnectionStatus" -> handleGetConnectionStatus()
-                "sendMessage" -> handleSendMessage(jsonPayload)
+                "pinggRPC" -> handleGrpcPing()
+                "getgRPCConnectionStatus" -> handleGetConnectionStatus()
+                "sendWayrenMessage" -> handleSendMessage(jsonPayload)
                 else -> "{\"error\": \"Unknown action: $action\"}"
             }
 
@@ -57,7 +55,8 @@ class WebAppInterface(
 
             try {
                 when (action) {
-                    "streamAllNewMessages" -> handleStreamAllNewMessages(streamId)
+                    "streamAllWayrenNewMessages" -> handleStreamAllNewMessages(streamId) //receive message from all possible wayren channels
+                    "streamAllWayrenChannels" -> handleStreamAllWayrenChannels(streamId) //list all available channels
                 }
             } catch (e: CancellationException) {
                 // Stream was stopped normally by the frontend
@@ -88,36 +87,36 @@ class WebAppInterface(
      * Data pipeline: gRPC stream → Channel → parse → internal stream → WebView
      *
      * 1. gRPC stream:  receives Messages from Companion (Singularity network)
-     *    └─ StreamObserver.onNext(msg)  →  streamChannel.trySend(msg)
+     *    └─ StreamObserver.onNext(msg)  →  wayrenMsgQueue.trySend(msg)
      *
-     * 2. Channel:      buffers messages between gRPC callback and coroutine loop
-     *    └─ for (message in streamChannel)  →  parseEnvelope(message)
+     * 2. Queue:       buffers messages between gRPC callback and coroutine loop
+     *    └─ for (message in wayrenMsgQueue)  →  parseEnvelope(message)
      *
-     * 3. Parse:        decodes Message.data bytes as WayrenChat Envelope
+     * 3. Parse:        Decodes `Message.data` bytes as WayrenChat Envelope
      *    └─ returns JSON: {"type":"text_message","author":"...","msg":"...","channel":...}
      *
      * 4. Internal stream: pushes JSON to WebView via evaluateJavascript
-     *    └─ window.handleAndroidStreamEvent(streamId, json)
+     *    └─ window.handleAndroidStreamEvent(streamId, JSON)
      */
     private suspend fun handleStreamAllNewMessages(streamId: String) {
-        val streamChannel = Channel<ee.wayren.icp.messages.Messages.Message>(Channel.UNLIMITED)
+        val wayrenMsgQueue = kotlinx.coroutines.channels.Channel<ee.wayren.icp.messages.Messages.Message>(kotlinx.coroutines.channels.Channel.UNLIMITED)
 
         Log.i(TAG, "Starting StreamAllNewMessages (streamId=$streamId)...")
-        grpcClient.streamAllNewMessages(object : StreamObserver<ee.wayren.icp.messages.Messages.Message> {
+        grpcClient.streamAllNewWayrenMessages(object : StreamObserver<ee.wayren.icp.messages.Messages.Message> {
             override fun onNext(value: ee.wayren.icp.messages.Messages.Message) {
-                streamChannel.trySend(value)
+                wayrenMsgQueue.trySend(value)
             }
             override fun onError(t: Throwable) {
                 Log.e(TAG, "StreamAllNewMessages error: ${t.message}")
-                streamChannel.close(t)
+                wayrenMsgQueue.close(t)
             }
             override fun onCompleted() {
                 Log.i(TAG, "StreamAllNewMessages ended by server")
-                streamChannel.close()
+                wayrenMsgQueue.close()
             }
         })
 
-        for (message in streamChannel) {
+        for (message in wayrenMsgQueue) {
             val json = parseEnvelope(message)
             withContext(Dispatchers.Main) {
                 webView.evaluateJavascript(
@@ -128,7 +127,36 @@ class WebAppInterface(
         }
     }
 
-    /** Decodes Message.data bytes as a WayrenChat Envelope and returns a JSON string. */
+    private suspend fun handleStreamAllWayrenChannels(streamId: String) {
+        val wayrenChannelsListQueue = kotlinx.coroutines.channels.Channel<ee.wayren.icp.channels.Channels.Channel>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+
+        Log.i(TAG, "Starting StreamAllChannels (streamId=$streamId)...")
+        grpcClient.streamAllWayrenChannels(object : StreamObserver<ee.wayren.icp.channels.Channels.Channel> {
+            override fun onNext(value: ee.wayren.icp.channels.Channels.Channel) {
+                wayrenChannelsListQueue.trySend(value)
+            }
+            override fun onError(t: Throwable) {
+                Log.e(TAG, "StreamAllChannels error: ${t.message}")
+                wayrenChannelsListQueue.close(t)
+            }
+            override fun onCompleted() {
+                Log.i(TAG, "StreamAllChannels ended by server")
+                wayrenChannelsListQueue.close()
+            }
+        })
+
+        for (ch in wayrenChannelsListQueue) {
+            val json = """{"id":${ch.id.toULong()},"name":"${ch.name}"}"""
+            withContext(Dispatchers.Main) {
+                webView.evaluateJavascript(
+                    "window.handleAndroidStreamEvent('$streamId', `$json`);",
+                    null
+                )
+            }
+        }
+    }
+
+    /** Decodes `Message.data` bytes as a WayrenChat Envelope and returns a JSON string. */
     private fun parseEnvelope(message: ee.wayren.icp.messages.Messages.Message): String {
         return try {
             val envelope = ee.wayren.chat.WayrenChat.Envelope.parseFrom(message.data)
@@ -157,17 +185,17 @@ class WebAppInterface(
             val text = payload.optString("text", "")
             val callsign = payload.optString("callsign", "Android App")
 
-            val channelStr = payload.optString("channel", "")
-            val channel = if (channelStr.isNotEmpty()) {
-                channelStr.toULong()
+            val wayrenChannelIdStr = payload.optString("channel", "")
+            val wayrenChannelId = if (wayrenChannelIdStr.isNotEmpty()) {
+                wayrenChannelIdStr.toULong()
             } else {
-                null // will use default in createMessage
+                null // will use default in createWayrenMessage
             }
 
-            val success = if (channel != null) {
-                grpcClient.createMessage(text, callsign, channel)
+            val success = if (wayrenChannelId != null) {
+                grpcClient.createWayrenMessage(text, callsign, wayrenChannelId)
             } else {
-                grpcClient.createMessage(text, callsign)
+                grpcClient.createWayrenMessage(text, callsign)
             }
 
             if (success) {

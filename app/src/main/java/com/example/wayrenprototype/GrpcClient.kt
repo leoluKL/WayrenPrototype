@@ -10,7 +10,6 @@ import io.grpc.stub.StreamObserver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -21,7 +20,7 @@ import java.util.concurrent.TimeUnit
  * Manages the gRPC connection to the Wayren Companion service running on the same device.
  * The service binds to 127.0.0.1:7073, so communication stays local and insecure.
  *
- * Automatically detects connection state — [detectChannelState] polls the service
+ * Automatically detects connection state — [detectGrpcChannelState] polls the service
  * every 3 seconds and updates [isConnected] for the frontend to query.
  */
 class GrpcClient(
@@ -41,17 +40,17 @@ class GrpcClient(
     var isConnected: Boolean = false
         private set
 
-    private val channel: ManagedChannel = ManagedChannelBuilder.forAddress(host, port)
+    private val grpcChannel: ManagedChannel = ManagedChannelBuilder.forAddress(host, port)
         .usePlaintext()           // localhost loopback, no TLS needed
         .keepAliveTime(15, TimeUnit.SECONDS)
         .keepAliveTimeout(10, TimeUnit.SECONDS)
         .build()
 
     private val stub: ee.wayren.icp.services.grpc.MessageServiceGrpc.MessageServiceBlockingStub =
-        ee.wayren.icp.services.grpc.MessageServiceGrpc.newBlockingStub(channel)
+        ee.wayren.icp.services.grpc.MessageServiceGrpc.newBlockingStub(grpcChannel)
 
     private val asyncStub: ee.wayren.icp.services.grpc.MessageServiceGrpc.MessageServiceStub =
-        ee.wayren.icp.services.grpc.MessageServiceGrpc.newStub(channel)
+        ee.wayren.icp.services.grpc.MessageServiceGrpc.newStub(grpcChannel)
 
     /**
      * Sends a Ping RPC to verify the Wayren Companion service is reachable.
@@ -77,7 +76,7 @@ class GrpcClient(
      *
      * @param appScope used to launch the stream-logging coroutine on first connect.
      */
-    suspend fun detectChannelState(appScope: CoroutineScope = GlobalScope) {
+    suspend fun detectGrpcChannelState(appScope: CoroutineScope = GlobalScope) {
         Log.i(TAG, "Starting continuous channel state detection at $host:$port...")
         while (true) {
             val success = ping()
@@ -88,7 +87,7 @@ class GrpcClient(
 
                     // Auto-send a test message to verify the connection end-to-end
                     val testText = "WayrenPrototype connected at ${System.currentTimeMillis()}"
-                    val sent = createMessage(testText, "WayrenProto")
+                    val sent = createWayrenMessage(testText, "WayrenProto")
                     Log.i(TAG, "Auto-send test message: ${if (sent) "sent" else "failed"}")
 
                     // Also start stream logging for all new messages
@@ -112,13 +111,13 @@ class GrpcClient(
      */
     fun shutdown() {
         isConnected = false
-        channel.shutdown()
+        grpcChannel.shutdown()
         try {
-            if (!channel.awaitTermination(5, TimeUnit.SECONDS)) {
-                channel.shutdownNow()
+            if (!grpcChannel.awaitTermination(5, TimeUnit.SECONDS)) {
+                grpcChannel.shutdownNow()
             }
         } catch (_: InterruptedException) {
-            channel.shutdownNow()
+            grpcChannel.shutdownNow()
         }
     }
 
@@ -129,13 +128,13 @@ class GrpcClient(
      *
      * @param text      The message text content.
      * @param callsign  The sender callsign.
-     * @param channel   Destination channel ID (uint64). Defaults to ALLCONCHANNEL.
+     * @param wayrenChannelId   Destination channel ID (uint64). Defaults to ALLCONCHANNEL.
      * @return true if the message was sent successfully.
      */
-    suspend fun createMessage(
+    suspend fun createWayrenMessage(
         text: String,
         callsign: String,
-        channel: ULong = ALLCONCHANNEL
+        wayrenChannelId: ULong = ALLCONCHANNEL
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             // 1. Build the application-layer Envelope containing a TextMessage
@@ -152,7 +151,7 @@ class GrpcClient(
 
             // 2. Wrap in the transport-layer NewMessage
             val header = ee.wayren.icp.services.Services.NewMessageHeader.newBuilder()
-                .setChannel(channel.toLong())
+                .setChannel(wayrenChannelId.toLong())
                 .setPriority(10)
                 .build()
 
@@ -168,7 +167,7 @@ class GrpcClient(
 
             // 3. Transmit
             stub.createMessage(newMessage)
-            Log.i(TAG, "Message sent (channel=$channel): \"$text\"")
+            Log.i(TAG, "Message sent (wayrenChannelId=$wayrenChannelId): \"$text\"")
             true
         } catch (e: StatusRuntimeException) {
             Log.w(TAG, "CreateMessage failed (transient): ${e.status.code}")
@@ -183,33 +182,78 @@ class GrpcClient(
      * Opens a server-streaming connection to StreamAllNewMessages.
      * Each received message is delivered to the [observer].
      */
-    fun streamAllNewMessages(observer: StreamObserver<ee.wayren.icp.messages.Messages.Message>) {
+    fun streamAllNewWayrenMessages(observer: StreamObserver<ee.wayren.icp.messages.Messages.Message>) {
         asyncStub.streamAllNewMessages(Empty.getDefaultInstance(), observer)
     }
 
     /**
-     * Background loop that logs all incoming stream messages.
+     * Opens a server-streaming connection to StreamAllChannels.
+     * Each received channel is delivered to the [observer].
+     */
+    fun streamAllWayrenChannels(observer: StreamObserver<ee.wayren.icp.channels.Channels.Channel>) {
+        asyncStub.streamAllChannels(Empty.getDefaultInstance(), observer)
+    }
+
+    /**
+     * Background loop that logs all available channels and incoming messages.
      */
     private suspend fun streamLoggingLoop() {
-        val channel = Channel<ee.wayren.icp.messages.Messages.Message>(Channel.UNLIMITED)
-        Log.i(TAG, "Stream logging started — waiting for messages...")
+        // ── Phase 1: detect available channels ──
+        val wayrenChannelsListQueue = kotlinx.coroutines.channels.Channel<ee.wayren.icp.channels.Channels.Channel>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        Log.i(TAG, "Detecting available Wayren channels...")
 
-        streamAllNewMessages(object : StreamObserver<ee.wayren.icp.messages.Messages.Message> {
-            override fun onNext(value: ee.wayren.icp.messages.Messages.Message) {
-                channel.trySend(value)
+        streamAllWayrenChannels(object : StreamObserver<ee.wayren.icp.channels.Channels.Channel> {
+            override fun onNext(value: ee.wayren.icp.channels.Channels.Channel) {
+                wayrenChannelsListQueue.trySend(value)
             }
             override fun onError(t: Throwable) {
-                Log.e(TAG, "Stream logging error: ${t.message}")
-                channel.close(t)
+                Log.e(TAG, "Channel detection error: ${t.message}")
             }
             override fun onCompleted() {
-                channel.close()
+                // stream never completes — periodic delay below handles collection
             }
         })
 
-        for (msg in channel) {
+        // Collect whatever channels arrive in the first 2 seconds
+        delay(2.seconds)
+        val wayrenChannelList = mutableListOf<String>()
+        while (true) {
+            val result = wayrenChannelsListQueue.tryReceive()
+            if (result.isSuccess) {
+                val ch = result.getOrThrow()
+                wayrenChannelList.add("  ${ch.name} — ${ch.id.toULong()}")
+            } else {
+                break
+            }
+        }
+
+        if (wayrenChannelList.isEmpty()) {
+            Log.i(TAG, "No channels detected")
+        } else {
+            Log.i(TAG, "Available channels (${wayrenChannelList.size}):")
+            wayrenChannelList.forEach { Log.i(TAG, it) }
+        }
+
+        // ── Phase 2: stream and log incoming messages ──
+        val wayrenMsgQueue = kotlinx.coroutines.channels.Channel<ee.wayren.icp.messages.Messages.Message>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        Log.i(TAG, "Message stream logging started — waiting for messages...")
+
+        streamAllNewWayrenMessages(object : StreamObserver<ee.wayren.icp.messages.Messages.Message> {
+            override fun onNext(value: ee.wayren.icp.messages.Messages.Message) {
+                wayrenMsgQueue.trySend(value)
+            }
+            override fun onError(t: Throwable) {
+                Log.e(TAG, "Message stream logging error: ${t.message}")
+                wayrenMsgQueue.close(t)
+            }
+            override fun onCompleted() {
+                wayrenMsgQueue.close()
+            }
+        })
+
+        for (msg in wayrenMsgQueue) {
             val header = msg.header
-            val channelId = header.channel.toULong()
+            val wayrenChannelId = header.channel.toULong()
 
             // Parse the data bytes as a WayrenChat Envelope (same as stream.js)
             val parsed = try {
@@ -231,7 +275,7 @@ class GrpcClient(
                 "parsing_error: ${e.message}"
             }
 
-            Log.i(TAG, "Incoming message — channel=$channelId | $parsed")
+            Log.i(TAG, "Incoming message — channel=$wayrenChannelId | $parsed")
         }
     }
 }
