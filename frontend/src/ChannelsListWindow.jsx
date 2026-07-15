@@ -2,12 +2,12 @@ import { X, Plus } from 'lucide-react'
 
 export default function ChannelsListWindow({
   channels,
-  openChannels,
+  excludeArr,
   onAddTab,
   onClose,
   title
 }) {
-  const available = channels.filter(ch => !openChannels.some(oc => oc.id === ch.id))
+  const available = channels.filter(ch => !excludeArr.some(oc => oc.id === ch.id))
 
   function handleOverlayClick(e) {
     if (e.target === e.currentTarget) {

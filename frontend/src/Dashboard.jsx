@@ -102,7 +102,7 @@ export default function Dashboard() {
         <ChannelsListWindow
           title="Saved Channels" 
           channels={savedChannels}
-          openChannels={openChannels}
+          excludeArr={[...openChannels]}
           onAddTab={(chId, chName) => { addChannelTab(chId, chName) }}
           onClose={() => setShowSavedChannelsWindow(false)}
         />
@@ -112,7 +112,7 @@ export default function Dashboard() {
         <ChannelsListWindow
           title="Discovered Channels"
           channels={discoveredChannelsFromMessages}
-          openChannels={openChannels}
+          excludeArr={[...openChannels,...savedChannels]}
           onAddTab={(chId, chName) => { addChannelTab(chId, chName) }}
           onClose={() => setShowDiscoveredChannelsWindow(false)}
         />

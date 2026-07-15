@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import { subscribeToNativeInternalStream, callNativeApi } from '../nativeBridge'
 
 const SessionsContext = createContext({})
@@ -51,6 +51,20 @@ export function SessionsContextProvider({ children }) {
       return [...prev, { id: chId, name: shortName }]
     })
   }, [])
+
+  // Subscribe to C2 message stream — discover channels from incoming messages
+  useEffect(() => {
+    const unsubscribe = subscribeToNativeInternalStream(
+      'streamAllWayrenNewMessages',
+      {},
+      (data) => {
+        const chId = data.channel
+        if (!chId) return
+        extractChannelFromMsg(chId)
+      }
+    )
+    return () => unsubscribe()
+  }, [extractChannelFromMsg])
 
   const addChannelTab = useCallback((chId, chName) => {
     setOpenChannels(prev => prev.some(ch => ch.id === chId) ? prev : [...prev, { id: chId, name:chName }])
