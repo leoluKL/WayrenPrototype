@@ -5,7 +5,6 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import io.grpc.stub.StreamObserver
 import kotlinx.coroutines.*
-import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
@@ -88,8 +87,16 @@ class WebAppInterface(
     }
 
     private fun handleGetDeviceName(): String {
-        val name = android.bluetooth.BluetoothAdapter.getDefaultAdapter()?.name
-            ?: android.os.Build.MODEL
+        val name = try {
+            val deviceName = android.provider.Settings.Global.getString(
+                webView.context.contentResolver,
+                "device_name"
+            )
+            if (!deviceName.isNullOrBlank()) deviceName else null
+        } catch (_: Exception) {
+            null
+        } ?: android.os.Build.MODEL
+
         return """{"name": "$name"}"""
     }
 
@@ -156,7 +163,7 @@ class WebAppInterface(
         })
 
         for (ch in wayrenChannelsListQueue) {
-            val json = """{"id":${ch.id.toULong()},"name":"${ch.name}"}"""
+            val json = """{"id":"${ch.id.toULong()}","name":"${ch.name}"}"""
             withContext(Dispatchers.Main) {
                 webView.evaluateJavascript(
                     "window.handleAndroidStreamEvent('$streamId', `$json`);",
@@ -172,35 +179,35 @@ class WebAppInterface(
      * other apps on the network are silently skipped).
      */
     private fun parseMessageData(message: ee.wayren.icp.messages.Messages.Message): String? {
-        val channel = message.header.channel
+        val channelStr = message.header.channel.toULong().toString()
         return try {
             val c2 = com.wayrenprototype.c2.C2.C2Payload.parseFrom(message.data)
-            parseC2Payload(c2, channel)
+            parseC2Payload(c2, channelStr)
         } catch (_: Exception) {
             null
         }
     }
 
     /** Decodes a C2Payload and returns a JSON string for the frontend. */
-    private fun parseC2Payload(payload: com.wayrenprototype.c2.C2.C2Payload, channel: Long): String {
+    private fun parseC2Payload(payload: com.wayrenprototype.c2.C2.C2Payload, channelStr: String): String {
         return when {
             payload.hasChat() -> {
                 val chat = payload.chat
-                """{"type":"c2_chat","from":"${chat.fromCallsign}","text":"${chat.text}","channel":$channel}"""
+                """{"type":"c2_chat","from":"${chat.fromCallsign}","text":"${chat.text}","channel":"$channelStr"}"""
             }
             payload.hasGisObject() -> {
                 val gis = payload.gisObject
-                """{"type":"c2_gis_object","object_id":"${gis.objectId}","name":"${gis.name}","channel":$channel}"""
+                """{"type":"c2_gis_object","object_id":"${gis.objectId}","name":"${gis.name}","channel":"$channelStr"}"""
             }
             payload.hasTacticalDraw() -> {
                 val draw = payload.tacticalDraw
-                """{"type":"c2_tactical_draw","draw_id":"${draw.drawId}","name":"${draw.name}","channel":$channel}"""
+                """{"type":"c2_tactical_draw","draw_id":"${draw.drawId}","name":"${draw.name}","channel":"$channelStr"}"""
             }
             payload.hasImage() -> {
                 val img = payload.image
-                """{"type":"c2_image","image_id":"${img.imageId}","mime":"${img.mimeType}","channel":$channel}"""
+                """{"type":"c2_image","image_id":"${img.imageId}","mime":"${img.mimeType}","channel":"$channelStr"}"""
             }
-            else -> """{"type":"c2_unknown","channel":$channel}"""
+            else -> """{"type":"c2_unknown","channel":"$channelStr"}"""
         }
     }
 
@@ -394,7 +401,7 @@ class WebAppInterface(
             }
             val channel = grpcClient.createWayrenChannel(name)
             if (channel != null) {
-                """{"status": "ok", "id": ${channel.id.toULong()}, "name": "${channel.name}"}"""
+                """{"status": "ok", "id": "${channel.id.toULong()}", "name": "${channel.name}"}"""
             } else {
                 """{"status": "error", "message": "Failed to create channel"}"""
             }

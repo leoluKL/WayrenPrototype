@@ -85,9 +85,9 @@ class GrpcClient(
                     Log.i(TAG, "Connection established — Wayren Companion is reachable")
 
                     // Auto-send a test message to verify the connection end-to-end
-                    val testText = "WayrenPrototype connected at ${System.currentTimeMillis()}"
-                    val sent = sendWayrenMessage(testText, "WayrenProto")
-                    Log.i(TAG, "Auto-send test message: ${if (sent) "sent" else "failed"}")
+                    //val testText = "WayrenPrototype connected at ${System.currentTimeMillis()}"
+                    //val sent = sendWayrenMessage(testText, "WayrenProto")
+                    //Log.i(TAG, "Auto-send test message: ${if (sent) "sent" else "failed"}")
 
                     // Also start stream logging for all new messages
                     appScope.launch(Dispatchers.IO) {
