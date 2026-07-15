@@ -187,7 +187,7 @@ class GrpcClient(
 
     /**
      * Sends a C2Payload message via the CreateMessage RPC.
-     * Serializes the C2Payload directly into Message.data — no WayrenChat Envelope wrapper.
+     * Serializes the C2Payload directly into `Message.data` — no WayrenChat Envelope wrapper.
      *
      * @param payload   The C2Payload to send (chat, GIS object, tactical draw, or image).
      * @param wayrenChannelId   Destination channel ID (uint64). Must be specified (no default).
@@ -197,7 +197,11 @@ class GrpcClient(
         payload: com.wayrenprototype.c2.C2.C2Payload,
         wayrenChannelId: ULong
     ): Boolean {
-        val success = sendRawMessage(payload.toByteArray(), wayrenChannelId)
+        val raw = payload.toByteArray()
+        val prefixed = ByteArray(1 + raw.size)
+        prefixed[0] = 0x33.toByte()
+        System.arraycopy(raw, 0, prefixed, 1, raw.size)
+        val success = sendRawMessage(prefixed, wayrenChannelId)
         if (success) {
             Log.i(TAG, "C2Payload sent (wayrenChannelId=$wayrenChannelId)")
         }
@@ -304,34 +308,42 @@ class GrpcClient(
         for (msg in wayrenMsgQueue) {
             val header = msg.header
             val wayrenChannelId = header.channel.toULong()
+            val data = msg.data
+            val dataSize = data.size()
 
-            // Try C2Payload first, then WayrenChat
-            val dataSize = msg.data.size()
-            val parsed = try {
-                val c2 = com.wayrenprototype.c2.C2.C2Payload.parseFrom(msg.data)
-                val typeName = when {
-                    c2.hasChat() -> "c2_chat"
-                    c2.hasGisObject() -> "c2_gis_object"
-                    c2.hasTacticalDraw() -> "c2_tactical_draw"
-                    c2.hasImage() -> "c2_image"
-                    else -> "c2_unknown"
-                }
-                "$typeName (${dataSize}B)"
-            } catch (_: Exception) {
-                // Not C2Payload — try WayrenChat
-                try {
-                    val envelope = ee.wayren.chat.WayrenChat.Envelope.parseFrom(msg.data)
-                    when {
-                        envelope.hasTextMessage() -> {
-                            val tm = envelope.textMessage
-                            "text_message from \"${tm.callsign}\": \"${tm.text}\""
+            val parsed = when {
+                dataSize >= 1 && data.byteAt(0) == 0x33.toByte() -> {
+                    // C2Payload (prefixed with 0x33)
+                    try {
+                        val c2 = com.wayrenprototype.c2.C2.C2Payload.parseFrom(data.substring(1))
+                        val typeName = when {
+                            c2.hasChat() -> "c2_chat"
+                            c2.hasGisObject() -> "c2_gis_object"
+                            c2.hasTacticalDraw() -> "c2_tactical_draw"
+                            c2.hasImage() -> "c2_image"
+                            else -> "c2_unknown"
                         }
-                        envelope.hasAckMessage() -> "ack_message from \"${envelope.ackMessage.callsign}\""
-                        envelope.hasEncMessage() -> "encrypted_message (fingerprint=${envelope.encMessage.fingerprint})"
-                        else -> "unknown_envelope"
+                        "$typeName (${dataSize - 1}B)"
+                    } catch (_: Exception) {
+                        "c2_parse_error (${dataSize}B)"
                     }
-                } catch (_: Exception) {
-                    "unknown_format (${dataSize}B)"
+                }
+                else -> {
+                    // Try WayrenChat.Envelope (backward compatible with other apps)
+                    try {
+                        val envelope = ee.wayren.chat.WayrenChat.Envelope.parseFrom(data)
+                        when {
+                            envelope.hasTextMessage() -> {
+                                val tm = envelope.textMessage
+                                "text_message from \"${tm.callsign}\": \"${tm.text}\""
+                            }
+                            envelope.hasAckMessage() -> "ack_message from \"${envelope.ackMessage.callsign}\""
+                            envelope.hasEncMessage() -> "encrypted_message (fingerprint=${envelope.encMessage.fingerprint})"
+                            else -> "unknown_envelope"
+                        }
+                    } catch (_: Exception) {
+                        "unknown_format (${dataSize}B)"
+                    }
                 }
             }
 

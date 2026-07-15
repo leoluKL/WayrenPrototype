@@ -174,14 +174,17 @@ class WebAppInterface(
     }
 
     /**
-     * Decodes `Message.data` bytes as C2Payload (our app's format only).
-     * Returns null if the message is not a valid C2Payload (e.g. WayrenChat messages from
-     * other apps on the network are silently skipped).
+     * Decodes `Message.data` bytes. Expects first byte prefix 0x33 for C2Payload.
+     * Returns null for any other message (e.g. WayrenChat from other apps).
      */
     private fun parseMessageData(message: ee.wayren.icp.messages.Messages.Message): String? {
         val channelStr = message.header.channel.toULong().toString()
+        val data = message.data
+        if (data.isEmpty()) return null
+        if (data.byteAt(0) != 0x33.toByte()) return null
+
         return try {
-            val c2 = com.wayrenprototype.c2.C2.C2Payload.parseFrom(message.data)
+            val c2 = com.wayrenprototype.c2.C2.C2Payload.parseFrom(data.substring(1))
             parseC2Payload(c2, channelStr)
         } catch (_: Exception) {
             null
