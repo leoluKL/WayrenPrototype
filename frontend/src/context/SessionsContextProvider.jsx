@@ -11,6 +11,16 @@ export function SessionsContextProvider({ children }) {
   const [discoveredChannelsFromMessages, setDiscoveredChannelsFromMessages] = useState([]) // [{ id, name }] — from incoming C2 msgs
   const [openChannels, setOpenChannels] = useState([]) // [{ id, name }]
   const [chatMessagesByChannel, setChatMessagesByChannel] = useState({}) // { [channelId]: [{ from, text, timestamp, type }] }
+  const [deviceName, setDeviceName] = useState('Android App')
+  const savedChannelsRef = useRef(savedChannels)
+  savedChannelsRef.current = savedChannels
+
+  // Fetch device name on mount
+  useEffect(() => {
+    callNativeApi('getDeviceName').then(r => {
+      if (r.name) setDeviceName(r.name)
+    }).catch(() => {})
+  }, [])
 
   // Poll connection status
   useEffect(() => {
@@ -44,12 +54,30 @@ export function SessionsContextProvider({ children }) {
     return () => unsubscribe()
   }, [])
 
+  // When savedChannels updates, backfill names in discovered channels
+  useEffect(() => {
+    if (savedChannels.length === 0) return
+    setDiscoveredChannelsFromMessages(prev => {
+      let changed = false
+      const next = prev.map(ch => {
+        const saved = savedChannels.find(s => s.id === ch.id)
+        if (saved && ch.name !== saved.name) {
+          changed = true
+          return { ...ch, name: saved.name }
+        }
+        return ch
+      })
+      return changed ? next : prev
+    })
+  }, [savedChannels])
+
   /** Add a channel discovered from an incoming C2 message. */
   const extractChannelFromMsg = useCallback((chId) => {
     setDiscoveredChannelsFromMessages(prev => {
       if (prev.some(ch => ch.id === chId)) return prev
-      const shortName = `${chId.slice(0, 2)}..${chId.slice(-2)}`
-      return [...prev, { id: chId, name: shortName }]
+      const saved = savedChannelsRef.current.find(ch => ch.id === chId)
+      const name = saved ? saved.name : `${chId.slice(0, 2)}..${chId.slice(-2)}`
+      return [...prev, { id: chId, name }]
     })
   }, [])
 
@@ -93,6 +121,7 @@ export function SessionsContextProvider({ children }) {
       discoveredChannelsFromMessages,
       openChannels,
       chatMessagesByChannel,
+      deviceName,
       addChannelTab,
       closeChannel,
       extractChannelFromMsg

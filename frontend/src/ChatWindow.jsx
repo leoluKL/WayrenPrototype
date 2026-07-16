@@ -6,19 +6,25 @@ import { callNativeApi } from './nativeBridge'
 export default function ChatWindow({ channelId }) {
   const [inputText, setInputText] = useState('')
   const messagesEndRef = useRef(null)
-  const { chatMessagesByChannel } = useSessionsContext()
+  const scrollRef = useRef(null)
+  const { chatMessagesByChannel, deviceName } = useSessionsContext()
   const messages = chatMessagesByChannel[channelId] || []
 
   const sendChatText = useCallback((text) => {
     callNativeApi('sendC2Payload', {
       type: 'c2_chat',
-      data: { text, from_callsign: 'Android App' },
+      data: { text, from_callsign: deviceName },
       channel: channelId
     })
-  }, [channelId])
+  }, [channelId, deviceName])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const el = scrollRef.current
+    if (!el) return
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20
+    if (nearBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages.length])
 
   const handleSend = () => {
@@ -43,18 +49,20 @@ export default function ChatWindow({ channelId }) {
   return (
     <div className="flex flex-col size-full">
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
+      <div className="flex-1 overflow-y-auto pl-3 pr-4 py-1 space-y-1" ref={scrollRef}>
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full">
             <p className="text-dim text-xs italic">No messages yet.</p>
           </div>
         )}
         {messages.map((msg, i) => (
-          <div key={i} className={`flex flex-col ${msg.from === 'Android App' ? 'items-end' : 'items-start'}`}>
-            <div className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${msg.from === 'Android App' ? 'bg-accent text-white rounded-br-md' : 'bg-hover text-main rounded-bl-md'}`}>
-              <div className="text-[11px] opacity-70 mb-0.5">{msg.from}</div>
-              <div className="break-words">{msg.text}</div>
-              <div className="text-[10px] opacity-50 text-right mt-0.5">{formatTime(msg.timestamp)}</div>
+          <div key={i} className={`flex flex-col w-full ${msg.from === deviceName ? 'items-end' : 'items-start'}`}>
+            <div className={`flex flex-col ${msg.from === deviceName ? 'bg-accent text-white rounded-br-md' : 'bg-hover text-main rounded-bl-md'} w-fit max-w-[80%] rounded-xl px-3 py-1`}>
+              <div className='flex text-[10px] opacity-70 mb-0.5 justify-between'>
+                <div>{msg.from}</div>
+                <div className="ml-2">{formatTime(msg.timestamp)}</div>
+              </div>
+              <div className="break-words text-sm">{msg.text}</div>
             </div>
           </div>
         ))}
