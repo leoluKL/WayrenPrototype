@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -11,26 +12,35 @@ import android.webkit.WebView
 import android.webkit.ValueCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
     // gRPC client for communicating with the Wayren Companion service on the same device
     private val grpcClient = GrpcClient()
     private var uploadMessage: ValueCallback<Array<Uri>>? = null
+    private var cameraImageUri: Uri? = null
 
     private val fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
-            uploadMessage?.onReceiveValue(
+            val uris = if (cameraImageUri != null) {
+                // Camera capture — photo saved to our temp file
+                arrayOf(cameraImageUri!!)
+            } else {
+                // File picker gallery
                 WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
-            )
+            }
+            uploadMessage?.onReceiveValue(uris)
         } else {
             uploadMessage?.onReceiveValue(null)
         }
         uploadMessage = null
+        cameraImageUri = null
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -75,11 +85,29 @@ class MainActivity : AppCompatActivity() {
                 fileChooserParams: FileChooserParams?
             ): Boolean {
                 uploadMessage = filePathCallback
-                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                    type = "image/*"
-                    addCategory(Intent.CATEGORY_OPENABLE)
+
+                if (fileChooserParams?.isCaptureEnabled == true) {
+                    // Camera capture mode
+                    val photoFile = File(cacheDir, "camera/${System.currentTimeMillis()}.jpg")
+                    photoFile.parentFile?.mkdirs()
+                    val photoUri = FileProvider.getUriForFile(
+                        this@MainActivity,
+                        "${packageName}.fileprovider",
+                        photoFile
+                    )
+                    cameraImageUri = photoUri
+                    val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                        putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
+                    }
+                    fileChooserLauncher.launch(cameraIntent)
+                } else {
+                    // Gallery picker mode
+                    val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                        type = "image/*"
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                    }
+                    fileChooserLauncher.launch(Intent.createChooser(intent, "Select Image"))
                 }
-                fileChooserLauncher.launch(Intent.createChooser(intent, "Select Image"))
                 return true
             }
         }
