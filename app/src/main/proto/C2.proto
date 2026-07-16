@@ -23,6 +23,7 @@ message C2Payload {
     C2GISObject     gis_object     = 2;
     C2TacticalDraw  tactical_draw  = 3;
     C2Image         image          = 4;
+    C2Audio         audio          = 5;
   }
 }
 
@@ -91,4 +92,15 @@ message C2Image {
   optional Coordinate geotag = 5;
   string from_callsign = 6;
   string uuid = 7;
+}
+
+// ── 5. Audio ──
+
+message C2Audio {
+  string audio_id = 1;
+  bytes data = 2;
+  string mime_type = 3;
+  string from_callsign = 4;
+  string uuid = 5;
+  uint32 duration_sec = 6;
 }

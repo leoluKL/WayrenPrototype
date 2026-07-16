@@ -323,6 +323,7 @@ class GrpcClient(
                             c2.hasGisObject() -> "c2_gis_object"
                             c2.hasTacticalDraw() -> "c2_tactical_draw"
                             c2.hasImage() -> "c2_image"
+                            c2.hasAudio() -> "c2_audio"
                             else -> "c2_unknown"
                         }
                         "$typeName (${dataSize - 1}B)"

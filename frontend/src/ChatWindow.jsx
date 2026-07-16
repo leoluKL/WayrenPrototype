@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Paperclip, Image, Camera } from 'lucide-react'
+import { Send, Paperclip, Image, Camera, Mic, Play } from 'lucide-react'
 import { useSessionsContext } from './context/GlobalContext'
 import { callNativeApi } from './nativeBridge'
 import { resizeImage } from './resizeImage'
@@ -8,9 +8,16 @@ export default function ChatWindow({ channelId }) {
   const [inputText, setInputText] = useState('')
   const [showAttach, setShowAttach] = useState(false)
   const [sending, setSending] = useState(false)
+  const [showRecordWindow, setShowRecordWindow] = useState(false)
+  const [recordingDuration, setRecordingDuration] = useState(0)
+  const [micError, setMicError] = useState('')
   const scrollRef = useRef(null)
   const wasNearBottomRef = useRef(true)
   const attachRef = useRef(null)
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef = useRef([])
+  const recordingTimerRef = useRef(null)
+  const isRecordingRef = useRef(false)
   const { chatMessagesByChannel, deviceName } = useSessionsContext()
   const messages = chatMessagesByChannel[channelId] || []
 
@@ -112,6 +119,109 @@ export default function ChatWindow({ channelId }) {
     }
   }, [channelId, deviceName])
 
+  // ── Voice recording (press-and-hold) ──
+
+  const micStreamRef = useRef(null)
+  const recordStartTimeRef = useRef(0)
+
+  // Request mic when modal opens so it's ready when user presses the button
+  useEffect(() => {
+    if (!showRecordWindow) return
+
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(stream => { micStreamRef.current = stream; setMicError('') })
+      .catch(err => { console.error('Mic error:', err); setMicError(err.message || 'Mic unavailable') })
+    return () => {
+      // Cleanup stream when modal closes
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach(t => t.stop())
+        micStreamRef.current = null
+      }
+    }
+  }, [showRecordWindow])
+
+  const handleStartRecording = useCallback(() => {
+    const stream = micStreamRef.current
+    if (!stream) return
+
+    audioChunksRef.current = []
+    recordStartTimeRef.current = Date.now()
+
+    const mediaRecorder = new MediaRecorder(stream, {
+      mimeType: 'audio/webm;codecs=opus',
+      audioBitsPerSecond: 12000
+    })
+    mediaRecorderRef.current = mediaRecorder
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksRef.current.push(e.data)
+    }
+
+    mediaRecorder.onstop = () => {
+      isRecordingRef.current = false
+      clearInterval(recordingTimerRef.current)
+
+      const elapsed = Date.now() - recordStartTimeRef.current
+      if (elapsed < 800) {
+        audioChunksRef.current = []
+        setShowRecordWindow(false)
+        return
+      }
+
+      const duration = Math.round(elapsed / 1000)
+      const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+      setShowRecordWindow(false)
+
+      const uuid = crypto.randomUUID()
+
+      callNativeApi('sendC2Payload', {
+        type: 'c2_chat',
+        data: { text: 'Loading voice message...', uuid, from_callsign: deviceName },
+        channel: channelId,
+        priority: 10
+      })
+
+      const reader = new FileReader()
+      reader.readAsDataURL(blob)
+      reader.onloadend = () => {
+        const b64 = reader.result.split(',')[1]
+        callNativeApi('sendC2Payload', {
+          type: 'c2_audio',
+          data: {
+            uuid,
+            audio_id: `${Date.now()}`,
+            mime_type: 'audio/webm',
+            data: b64,
+            from_callsign: deviceName,
+            duration_sec: duration
+          },
+          channel: channelId,
+          priority: 1
+        })
+      }
+    }
+
+    mediaRecorder.start()
+    isRecordingRef.current = true
+    setRecordingDuration(0) // trigger re-render: replaces "Hold to Record" with "0s"
+
+    recordingTimerRef.current = setInterval(() => {
+      setRecordingDuration((Date.now() - recordStartTimeRef.current) / 1000)
+    }, 100)
+
+    setTimeout(() => {
+      if (isRecordingRef.current && mediaRecorderRef.current?.state === 'recording') {
+        mediaRecorderRef.current.stop()
+      }
+    }, 60000)
+  }, [channelId, deviceName])
+
+  const handleStopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && isRecordingRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop()
+    }
+  }, [])
+
   const formatTime = (ts) => {
     const d = new Date(ts)
     return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0')
@@ -144,6 +254,19 @@ export default function ChatWindow({ channelId }) {
                 <div className="break-words text-sm text-dim/60 animate-pulse">{msg.text}</div>
               ) : msg.type === 'c2_chat' ? (
                 <div className="break-words text-sm">{msg.text}</div>
+              ) : msg.type === 'c2_audio' ? (
+                <div className="flex items-center gap-2.5 px-1">
+                  <button
+                    className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center shrink-0 hover:bg-white/30 active:scale-90 transition-all"
+                    onClick={() => {
+                      const audio = new Audio(`data:${msg.mime};base64,${msg.data}`)
+                      audio.play()
+                    }}
+                  >
+                    <Play size={14} className="ml-0.5" />
+                  </button>
+                  <div className="text-xs opacity-70">{msg.duration_sec || '?'}s</div>
+                </div>
               ) : null}
             </div>
           </div>
@@ -195,6 +318,13 @@ export default function ChatWindow({ channelId }) {
                 <Camera size={16} className="text-dim shrink-0" />
                 Camera
               </div>
+              <div
+                className="flex items-center gap-2.5 w-full px-3.5 py-3 text-main text-sm rounded-lg min-h-[44px] cursor-pointer"
+                onClick={() => { setShowAttach(false); setShowRecordWindow(true); setRecordingDuration(-1); setMicError(''); }}
+              >
+                <Mic size={16} className="text-dim shrink-0" />
+                Voice Message
+              </div>
             </div>
           )}
         </div>
@@ -214,6 +344,73 @@ export default function ChatWindow({ channelId }) {
           <Send size={18} />
         </button>
       </div>
+
+      {/* Voice recording modal — press-and-hold */}
+      {showRecordWindow && (
+        <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isRecordingRef.current) setShowRecordWindow(false)
+          }}>
+          <div className="flex flex-col items-center gap-4 select-none touch-none">
+            <div
+              className={isRecordingRef.current
+                ? "bg-red-700 rounded-full p-8 animate-pulse"
+                : "bg-red-600 rounded-full p-8"
+              }
+              onTouchStart={(e) => {
+                if (!isRecordingRef.current) {
+                  e.preventDefault()
+                  handleStartRecording()
+                }
+              }}
+              onTouchEnd={(e) => {
+                if (isRecordingRef.current) {
+                  e.preventDefault()
+                  handleStopRecording()
+                }
+              }}
+            >
+              <Mic size={48} className="text-white" />
+            </div>
+            {micError ? (
+              <>
+                <span className="text-sm text-red-400">{micError}</span>
+                <button
+                  className="text-xs text-dim/60 hover:text-dim cursor-pointer bg-transparent border-none"
+                  onClick={() => setShowRecordWindow(false)}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : recordingDuration < 0 ? (
+              <>
+                <span className="text-sm text-dim">Hold to Record</span>
+                <button
+                  className="text-xs text-dim/60 hover:text-dim cursor-pointer bg-transparent border-none"
+                  onClick={() => setShowRecordWindow(false)}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="text-sm text-red-300 font-medium">{recordingDuration.toFixed(1)}s</span>
+                {isRecordingRef.current && (
+                  <span className="text-xs text-dim/70">Release to Send</span>
+                )}
+                {!isRecordingRef.current && (
+                  <button
+                    className="text-xs text-dim/60 hover:text-dim cursor-pointer bg-transparent border-none"
+                    onClick={() => setShowRecordWindow(false)}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

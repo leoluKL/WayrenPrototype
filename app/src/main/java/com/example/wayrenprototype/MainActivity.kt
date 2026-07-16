@@ -3,8 +3,10 @@ package com.example.wayrenprototype
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -25,6 +27,13 @@ class MainActivity : AppCompatActivity() {
     private val grpcClient = GrpcClient()
     private var uploadMessage: ValueCallback<Array<Uri>>? = null
     private var cameraImageUri: Uri? = null
+
+    // Request RECORD_AUDIO runtime permission so WebView getUserMedia can start the mic
+    private val audioPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) {
+            android.util.Log.w("WayrenApp", "RECORD_AUDIO permission denied by user")
+        }
+    }
 
     private val fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
@@ -110,10 +119,24 @@ class MainActivity : AppCompatActivity() {
                 }
                 return true
             }
+
+            // Required for getUserMedia (microphone) to work in WebView
+            override fun onPermissionRequest(request: PermissionRequest) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    request.grant(request.resources)
+                }
+            }
         }
 
         // Load via the secure app domain instead of file://
         webView.loadUrl("https://appassets.androidplatform.net/assets/www/index.html")
+
+        // Request RECORD_AUDIO at OS level so WebView getUserMedia doesn't fail
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+            }
+        }
 
         // Continuously monitor the Wayren Companion service connection in the background.
         // Updates isConnected; frontend can query via getConnectionStatus bridge call.

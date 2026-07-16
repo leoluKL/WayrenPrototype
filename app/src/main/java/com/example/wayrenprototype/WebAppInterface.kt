@@ -212,6 +212,12 @@ class WebAppInterface(
                 val b64 = android.util.Base64.encodeToString(img.data.toByteArray(), android.util.Base64.NO_WRAP)
                 """{"type":"c2_image","image_id":"${img.imageId}","uuid":"${img.uuid}","mime":"${img.mimeType}","data":"$b64","from":"${img.fromCallsign}","channel":"$channelStr"}"""
             }
+            payload.hasAudio() -> {
+                val aud = payload.audio
+                Log.i(TAG, "Received C2Audio: raw=${aud.data.size()}B mime=${aud.mimeType} dur=${aud.durationSec}s")
+                val b64 = android.util.Base64.encodeToString(aud.data.toByteArray(), android.util.Base64.NO_WRAP)
+                """{"type":"c2_audio","audio_id":"${aud.audioId}","uuid":"${aud.uuid}","mime":"${aud.mimeType}","data":"$b64","duration_sec":${aud.durationSec},"from":"${aud.fromCallsign}","channel":"$channelStr"}"""
+            }
             else -> """{"type":"c2_unknown","channel":"$channelStr"}"""
         }
     }
@@ -260,7 +266,7 @@ class WebAppInterface(
 
             val c2Payload = buildC2Payload(type, dataObj)
 
-            if (type == "c2_image") {
+            if (type == "c2_image" || type == "c2_audio") {
                 val dataSize = dataObj.optString("data", "").length
                 Log.i(TAG, "Send C2 message: type=$type channel=$wayrenChannelIdStr data_size=${dataSize}B")
             } else {
@@ -392,6 +398,23 @@ class WebAppInterface(
 
                 com.wayrenprototype.c2.C2.C2Payload.newBuilder()
                     .setImage(imgBuilder.build())
+                    .build()
+            }
+            "c2_audio" -> {
+                val audBuilder = com.wayrenprototype.c2.C2.C2Audio.newBuilder()
+                    .setAudioId(data.optString("audio_id", ""))
+                    .setMimeType(data.optString("mime_type", "audio/webm"))
+                    .setFromCallsign(data.optString("from_callsign", "Android App"))
+                    .setUuid(data.optString("uuid", ""))
+                    .setDurationSec(data.optInt("duration_sec", 0))
+                val dataStr = data.optString("data", "")
+                if (dataStr.isNotEmpty()) {
+                    audBuilder.data = com.google.protobuf.ByteString.copyFrom(
+                        android.util.Base64.decode(dataStr, android.util.Base64.DEFAULT)
+                    )
+                }
+                com.wayrenprototype.c2.C2.C2Payload.newBuilder()
+                    .setAudio(audBuilder.build())
                     .build()
             }
             else -> throw IllegalArgumentException("Unknown C2Payload type: $type")

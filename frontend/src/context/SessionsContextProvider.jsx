@@ -160,6 +160,43 @@ export function SessionsContextProvider({ children }) {
             }
           })
         }
+
+        if (data.type === 'c2_audio' && data.data) {
+          setChatMessagesByChannel(prev => {
+            const channelMsgs = prev[chId] || []
+            const loadingIdx = channelMsgs.findIndex(
+              m => m.type === 'c2_chat' && m.uuid === data.uuid
+            )
+            if (loadingIdx !== -1) {
+              const next = [...channelMsgs]
+              next[loadingIdx] = {
+                type: 'c2_audio',
+                from: data.from,
+                audio_id: data.audio_id,
+                uuid: data.uuid,
+                mime: data.mime,
+                data: data.data,
+                duration_sec: data.duration_sec,
+                timestamp: Date.now()
+              }
+              return { ...prev, [chId]: next }
+            } else {
+              return {
+                ...prev,
+                [chId]: [...channelMsgs, {
+                  type: 'c2_audio',
+                  from: data.from,
+                  audio_id: data.audio_id,
+                  uuid: data.uuid,
+                  mime: data.mime,
+                  data: data.data,
+                  duration_sec: data.duration_sec,
+                  timestamp: Date.now()
+                }]
+              }
+            }
+          })
+        }
       }
     )
     return () => unsubscribe()
