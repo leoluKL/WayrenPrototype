@@ -10,6 +10,11 @@ message Coordinate {
   optional double alt = 3;
 }
 
+message TimedPoint {
+  Coordinate coord = 1;
+  uint32 relative_time_ms = 2; // milliseconds since the first point was drawn
+}
+
 // ── Top-level wrapper ──
 
 message C2Payload {
@@ -28,7 +33,6 @@ message C2Chat {
   repeated string to_callsigns = 2;
   string text = 3;
   optional string reply_to_message_id = 4;
-  optional uint32 priority = 5;
 }
 
 // ── 2. GIS Object ──
@@ -46,40 +50,34 @@ enum ObjectAffiliation {
   AFFILIATION_UNKNOWN  = 3;
 }
 
+enum ShapeType {
+  SHAPE_ICON     = 0;  // single point marker
+  SHAPE_POLYGON  = 1;  // closed area boundary
+  SHAPE_VECTOR   = 2;  // open path / route
+}
+
 message C2GISObject {
   ObjectAction action = 1;
   string object_id = 2;
   string name = 3;
   repeated string tags = 4;
   ObjectAffiliation affiliation = 5;
-  Coordinate position = 6;
+  repeated Coordinate points = 6;  // 1 point for ICON, boundary for POLYGON, waypoints for VECTOR
   optional double course = 7;
   optional double speed = 8;
   optional string icon = 9;
   optional string parent_object_id = 10;
+  ShapeType shape = 11;
 }
 
-// ── 3. Tactical Drawing ──
-
-enum ShapeType {
-  SHAPE_LINE      = 0;
-  SHAPE_POLYGON   = 1;
-  SHAPE_CIRCLE    = 2;
-  SHAPE_RECTANGLE = 3;
-  SHAPE_FREEHAND  = 4;
-  SHAPE_ARROW     = 5;
-}
+// ── 3. Tactical Drawing (freehand annotation with playback timing) ──
 
 message C2TacticalDraw {
   string draw_id = 1;
   string name = 2;
-  ShapeType shape = 3;
-  repeated Coordinate points = 4;
-  optional string color = 5;
-  optional uint32 stroke_width = 6;
-  optional uint32 fill_opacity = 7;
-  optional Coordinate circle_center = 8;
-  optional double circle_radius_meters = 9;
+  uint32 stroke_width = 3;
+  string stroke_color = 4;       // hex color e.g. "#FF0000"
+  repeated TimedPoint points = 5; // drawn path with relative timestamps
 }
 
 // ── 4. Image ──

@@ -224,13 +224,14 @@ class WebAppInterface(
             val wayrenChannelId = if (wayrenChannelIdStr.isNotEmpty()) {
                 wayrenChannelIdStr.toULong()
             } else {
-                null // will use default in sendWayrenMessage
+                null // will use default in sendWayrenChatMessage
             }
+            val priority = if (payload.has("priority")) payload.getInt("priority") else 10
 
             val success = if (wayrenChannelId != null) {
-                grpcClient.sendWayrenMessage(text, callsign, wayrenChannelId)
+                grpcClient.sendWayrenChatMessage(text, callsign, wayrenChannelId, priority)
             } else {
-                grpcClient.sendWayrenMessage(text, callsign)
+                grpcClient.sendWayrenChatMessage(text, callsign, priority = priority)
             }
 
             if (success) {
@@ -257,7 +258,9 @@ class WebAppInterface(
 
             val c2Payload = buildC2Payload(type, dataObj)
 
-            val success = grpcClient.sendC2Message(c2Payload, wayrenChannelId)
+            val priority = if (payload.has("priority")) payload.getInt("priority") else 10
+
+            val success = grpcClient.sendC2Message(c2Payload, wayrenChannelId, priority)
             if (success) {
                 """{"status": "ok"}"""
             } else {
@@ -270,7 +273,7 @@ class WebAppInterface(
 
     private fun buildC2Payload(type: String, data: JSONObject): com.wayrenprototype.c2.C2.C2Payload {
         return when (type) {
-            "chat" -> {
+            "c2_chat" -> {
                 val chatBuilder = com.wayrenprototype.c2.C2.C2Chat.newBuilder()
                     .setFromCallsign(data.optString("from_callsign", "Android App"))
                     .setText(data.optString("text", ""))
@@ -285,18 +288,17 @@ class WebAppInterface(
                 if (data.has("reply_to_message_id")) {
                     chatBuilder.setReplyToMessageId(data.optString("reply_to_message_id"))
                 }
-                // Optional: priority
-                if (data.has("priority")) {
-                    chatBuilder.setPriority(data.optInt("priority"))
-                }
                 com.wayrenprototype.c2.C2.C2Payload.newBuilder()
                     .setChat(chatBuilder.build())
                     .build()
             }
-            "gis_object" -> {
+            "c2_gis_object" -> {
                 val gisBuilder = com.wayrenprototype.c2.C2.C2GISObject.newBuilder()
                     .setObjectId(data.optString("object_id", ""))
                     .setName(data.optString("name", ""))
+                // Shape enum
+                val shapeStr = data.optString("shape", "SHAPE_ICON")
+                gisBuilder.shape = com.wayrenprototype.c2.C2.ShapeType.valueOf(shapeStr)
                 // Enum fields
                 val actionStr = data.optString("action", "OBJECT_ADD")
                 gisBuilder.action = com.wayrenprototype.c2.C2.ObjectAction.valueOf(actionStr)
@@ -309,10 +311,15 @@ class WebAppInterface(
                         gisBuilder.addTags(tagsArr.optString(i))
                     }
                 }
-                // Optional: position
-                val posObj = data.optJSONObject("position")
-                if (posObj != null) {
-                    gisBuilder.position = buildCoordinate(posObj)
+                // Optional: points (repeated)
+                val pointsArr = data.optJSONArray("points")
+                if (pointsArr != null) {
+                    for (i in 0 until pointsArr.length()) {
+                        val ptObj = pointsArr.optJSONObject(i)
+                        if (ptObj != null) {
+                            gisBuilder.addPoints(buildCoordinate(ptObj))
+                        }
+                    }
                 }
                 // Optional: course, speed, icon, parent_object_id
                 if (data.has("course")) gisBuilder.course = data.optDouble("course")
@@ -324,39 +331,35 @@ class WebAppInterface(
                     .setGisObject(gisBuilder.build())
                     .build()
             }
-            "tactical_draw" -> {
+            "c2_tactical_draw" -> {
                 val drawBuilder = com.wayrenprototype.c2.C2.C2TacticalDraw.newBuilder()
                     .setDrawId(data.optString("draw_id", ""))
                     .setName(data.optString("name", ""))
-                // Shape enum
-                val shapeStr = data.optString("shape", "SHAPE_LINE")
-                drawBuilder.shape = com.wayrenprototype.c2.C2.ShapeType.valueOf(shapeStr)
-                // Optional: points
+                    .setStrokeWidth(data.optInt("stroke_width", 3))
+                    .setStrokeColor(data.optString("stroke_color", "#FF0000"))
+                // Optional: timed points
                 val pointsArr = data.optJSONArray("points")
                 if (pointsArr != null) {
                     for (i in 0 until pointsArr.length()) {
                         val ptObj = pointsArr.optJSONObject(i)
                         if (ptObj != null) {
-                            drawBuilder.addPoints(buildCoordinate(ptObj))
+                            val coordObj = ptObj.optJSONObject("coord")
+                            if (coordObj != null) {
+                                val timedPoint = com.wayrenprototype.c2.C2.TimedPoint.newBuilder()
+                                    .setCoord(buildCoordinate(coordObj))
+                                    .setRelativeTimeMs(ptObj.optInt("relative_time_ms", 0))
+                                    .build()
+                                drawBuilder.addPoints(timedPoint)
+                            }
                         }
                     }
                 }
-                // Optional: color, stroke_width, fill_opacity
-                if (data.has("color")) drawBuilder.color = data.optString("color")
-                if (data.has("stroke_width")) drawBuilder.strokeWidth = data.optInt("stroke_width")
-                if (data.has("fill_opacity")) drawBuilder.fillOpacity = data.optInt("fill_opacity")
-                // Optional: circle_center, circle_radius_meters
-                val centerObj = data.optJSONObject("circle_center")
-                if (centerObj != null) {
-                    drawBuilder.circleCenter = buildCoordinate(centerObj)
-                }
-                if (data.has("circle_radius_meters")) drawBuilder.circleRadiusMeters = data.optDouble("circle_radius_meters")
 
                 com.wayrenprototype.c2.C2.C2Payload.newBuilder()
                     .setTacticalDraw(drawBuilder.build())
                     .build()
             }
-            "image" -> {
+            "c2_image" -> {
                 val imgBuilder = com.wayrenprototype.c2.C2.C2Image.newBuilder()
                     .setImageId(data.optString("image_id", ""))
                     .setMimeType(data.optString("mime_type", "image/png"))

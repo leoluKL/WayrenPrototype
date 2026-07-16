@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Circle, MoreHorizontal, Hash, X, Plus } from 'lucide-react'
 import { useSessionsContext } from './context/GlobalContext'
+import { callNativeApi } from './nativeBridge'
 import ChannelsListWindow from './ChannelsListWindow'
 import CreateChannel from './CreateChannel'
 
@@ -34,6 +35,14 @@ export default function Dashboard() {
     addChannelTab(chId, chName)
     setCurrentTabId(chId)
   }, [addChannelTab])
+
+  const handleSendTest = useCallback((chId, chName) => {
+    callNativeApi('sendC2Payload', {
+      type: 'c2_chat',
+      data: { text: `I am ${chName}`, from_callsign: 'Android App' },
+      channel: chId
+    })
+  }, [])
 
 
   return (
@@ -117,7 +126,13 @@ export default function Dashboard() {
                 <button className="absolute top-2 right-2 bg-transparent border-none text-dim p-2 rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center" onClick={() => closeChannel(ch.id)}>
                   <X size={18} />
                 </button>
-                <div className="text-main text-sm">{ch.name}</div>
+                <div className="text-main text-sm mb-4">{ch.name}</div>
+                <button
+                  className="bg-accent text-white text-sm px-4 py-2.5 rounded-lg min-h-[44px]"
+                  onClick={() => handleSendTest(ch.id, ch.name)}
+                >
+                  Send Test C2_chat
+                </button>
               </div>
             </div>
           ))

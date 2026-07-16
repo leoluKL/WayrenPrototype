@@ -86,7 +86,7 @@ class GrpcClient(
 
                     // Auto-send a test message to verify the connection end-to-end
                     //val testText = "WayrenPrototype connected at ${System.currentTimeMillis()}"
-                    //val sent = sendWayrenMessage(testText, "WayrenProto")
+                    //val sent = sendWayrenChatMessage(testText, "WayrenProto")
                     //Log.i(TAG, "Auto-send test message: ${if (sent) "sent" else "failed"}")
 
                     // Also start stream logging for all new messages
@@ -127,11 +127,11 @@ class GrpcClient(
      * @param wayrenChannelId  Destination channel ID (uint64).
      * @return true if the message was sent successfully.
      */
-    private suspend fun sendRawMessage(data: ByteArray, wayrenChannelId: ULong): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun sendRawMessage(data: ByteArray, wayrenChannelId: ULong, priority: Int): Boolean = withContext(Dispatchers.IO) {
         try {
             val header = ee.wayren.icp.services.Services.NewMessageHeader.newBuilder()
                 .setChannel(wayrenChannelId.toLong())
-                .setPriority(10)
+                .setPriority(priority)
                 .build()
 
             val metadata = ee.wayren.icp.services.Services.NewMessageMetadata.newBuilder()
@@ -164,10 +164,11 @@ class GrpcClient(
      * @param wayrenChannelId   Destination channel ID (uint64). Defaults to ALLCONCHANNEL.
      * @return true if the message was sent successfully.
      */
-    suspend fun sendWayrenMessage(
+    suspend fun sendWayrenChatMessage(
         text: String,
         callsign: String,
-        wayrenChannelId: ULong = ALLCONCHANNEL
+        wayrenChannelId: ULong = ALLCONCHANNEL,
+        priority: Int = 10
     ): Boolean {
         val textMessage = ee.wayren.chat.WayrenChat.TextMessage.newBuilder()
             .setCallsign(callsign)
@@ -178,7 +179,7 @@ class GrpcClient(
             .setTextMessage(textMessage)
             .build()
 
-        val success = sendRawMessage(envelope.toByteArray(), wayrenChannelId)
+        val success = sendRawMessage(envelope.toByteArray(), wayrenChannelId, priority)
         if (success) {
             Log.i(TAG, "Message sent (wayrenChannelId=$wayrenChannelId): \"$text\"")
         }
@@ -195,13 +196,14 @@ class GrpcClient(
      */
     suspend fun sendC2Message(
         payload: com.wayrenprototype.c2.C2.C2Payload,
-        wayrenChannelId: ULong
+        wayrenChannelId: ULong,
+        priority: Int = 10
     ): Boolean {
         val raw = payload.toByteArray()
         val prefixed = ByteArray(1 + raw.size)
         prefixed[0] = 0x33.toByte()
         System.arraycopy(raw, 0, prefixed, 1, raw.size)
-        val success = sendRawMessage(prefixed, wayrenChannelId)
+        val success = sendRawMessage(prefixed, wayrenChannelId, priority)
         if (success) {
             Log.i(TAG, "C2Payload sent (wayrenChannelId=$wayrenChannelId)")
         }
