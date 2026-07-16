@@ -9,6 +9,7 @@ export default function Dashboard() {
   const [showSavedChannelsWindow, setShowSavedChannelsWindow] = useState(false)
   const [showDiscoveredChannelsWindow, setShowDiscoveredChannelsWindow] = useState(false)
   const [showCreateChannel, setShowCreateChannel] = useState(false)
+  const [currentTabId, setCurrentTabId] = useState(null)
   const menuRef = useRef(null)
 
   const { connected, savedChannels, discoveredChannelsFromMessages, openChannels, addChannelTab, closeChannel } = useSessionsContext()
@@ -25,9 +26,18 @@ export default function Dashboard() {
     }
   }, [showMenu])
 
+  const handleTabClick = useCallback((chId) => {
+    setCurrentTabId(chId)
+  }, [])
+
+  const handleAddTab = useCallback((chId, chName) => {
+    addChannelTab(chId, chName)
+    setCurrentTabId(chId)
+  }, [addChannelTab])
+
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="w-full h-full flex flex-col">
       <header className="flex flex-wrap items-center gap-x-1 bg-surface border-b border-border shrink-0 min-h-[32px] pt-1">
         <div className="relative" ref={menuRef}>
           <button
@@ -77,33 +87,49 @@ export default function Dashboard() {
           )}
         </div>
         {openChannels.map(ch => (
-          <div key={ch.id} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-hover rounded-md text-xs shrink-0 min-h-[36px]" title={ch.name}>
-            <span className="text-main max-w-[100px] truncate">{ch.name}</span>
-            <button className="bg-transparent border-none text-dim p-1 rounded min-w-[28px] min-h-[28px] flex items-center justify-center" onClick={() => closeChannel(ch.id)}>
-              <X size={12} />
-            </button>
+          <div
+            key={ch.id}
+            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-xs shrink-0 min-h-[36px] cursor-pointer ${ch.id === currentTabId ? 'bg-accent text-white' : 'bg-hover text-main'}`}
+            title={ch.name}
+            onClick={() => handleTabClick(ch.id)}
+          >
+            <span className="max-w-[100px] truncate">{ch.name}</span>
           </div>
         ))}
       </header>
 
-      <main className="flex-1 flex items-center justify-center p-6">
+      <main className="flex-1">
         {openChannels.length === 0 ? (
-          <div className="text-center">
-            <h1 className="text-xl font-semibold mb-2 text-main">WayrenPrototype</h1>
-            <p className="text-sm text-dim leading-relaxed">No channels open yet.</p>
-            <p className="mt-1 text-xs italic text-dim">Tap ⋯ → Discovered Channels or create channel</p>
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <h1 className="text-xl font-semibold mb-2 text-main">WayrenPrototype</h1>
+              <p className="text-sm text-dim leading-relaxed">No channels open yet.</p>
+              <p className="mt-1 text-xs italic text-dim">Tap ⋯ to choose channel</p>
+            </div>
           </div>
         ) : (
-          <p className="text-dim text-sm">Tab content coming soon</p>
+          openChannels.map(ch => (
+            <div
+              key={ch.id}
+              className={`w-full h-full ${ch.id === currentTabId ? '' : 'hidden'}`}
+            >
+              <div className="relative p-4 h-full">
+                <button className="absolute top-2 right-2 bg-transparent border-none text-dim p-2 rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center" onClick={() => closeChannel(ch.id)}>
+                  <X size={18} />
+                </button>
+                <div className="text-main text-sm">{ch.name}</div>
+              </div>
+            </div>
+          ))
         )}
       </main>
 
       {showSavedChannelsWindow && (
         <ChannelsListWindow
-          title="Saved Channels" 
+          title="Saved Channels"
           channels={savedChannels}
           excludeArr={[...openChannels]}
-          onAddTab={(chId, chName) => { addChannelTab(chId, chName) }}
+          onAddTab={handleAddTab}
           onClose={() => setShowSavedChannelsWindow(false)}
         />
       )}
@@ -113,7 +139,7 @@ export default function Dashboard() {
           title="Discovered Channels"
           channels={discoveredChannelsFromMessages}
           excludeArr={[...openChannels,...savedChannels]}
-          onAddTab={(chId, chName) => { addChannelTab(chId, chName) }}
+          onAddTab={handleAddTab}
           onClose={() => setShowDiscoveredChannelsWindow(false)}
         />
       )}
