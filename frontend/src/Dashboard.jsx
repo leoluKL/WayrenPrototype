@@ -4,6 +4,7 @@ import { useSessionsContext } from './context/GlobalContext'
 import ChannelsListWindow from './ChannelsListWindow'
 import CreateChannel from './CreateChannel'
 import ChatWindow from './ChatWindow'
+import MapGis from './MapGis'
 
 export default function Dashboard() {
   const [showMenu, setShowMenu] = useState(false)
@@ -155,8 +156,8 @@ export default function Dashboard() {
                 </div>
 
                 {/* GIS / Map */}
-                <div className="flex-1 min-h-0 bg-[#1a1a2e] flex items-center justify-center">
-                  <p className="text-dim text-xs italic">GIS Map — coming soon</p>
+                <div className="flex-1 min-h-0 relative">
+                  <MapGis />
                 </div>
               </div>
             </div>

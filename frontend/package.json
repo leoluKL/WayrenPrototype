@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "lucide-react": "^1.23.0",
+    "maplibre-gl": "^5.24.0",
     "pica": "^10.0.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

@@ -19,6 +19,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
+import java.io.ByteArrayInputStream
 import java.io.File
 
 class MainActivity : AppCompatActivity() {
@@ -27,6 +28,9 @@ class MainActivity : AppCompatActivity() {
     private val grpcClient = GrpcClient()
     private var uploadMessage: ValueCallback<Array<Uri>>? = null
     private var cameraImageUri: Uri? = null
+
+    // Offline map tile reader (PMTiles archive)
+    private var pmtilesReader: PMTilesReader? = null
 
     // Request RECORD_AUDIO runtime permission so WebView getUserMedia can start the mic
     private val audioPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -76,11 +80,21 @@ class MainActivity : AppCompatActivity() {
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
 
+        // Copy offline map tiles from assets to internal storage (if not yet copied)
+        loadPmtiles()
+
         webView.webViewClient = object : WebViewClientCompat() {
             override fun shouldInterceptRequest(
                 view: WebView,
                 request: WebResourceRequest
             ): WebResourceResponse? {
+                val url = request.url.toString()
+
+                // Intercept offline map tile requests (same-origin, no CORS needed)
+                if (url.startsWith("https://appassets.androidplatform.net/tiles/")) {
+                    return serveMapTile(url)
+                }
+
                 // Intercept asset files and serve them under the secure domain
                 return assetLoader.shouldInterceptRequest(request.url)
             }
@@ -148,6 +162,82 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        pmtilesReader?.close()
         grpcClient.shutdown()
+    }
+
+    // ── Offline Map Tiles ──
+
+    companion object {
+        private const val TAG = "WayrenApp"
+        private const val PMTILES_ASSET = "appMap.pmtiles"
+
+        /** MIME type for Mapbox Vector Tiles. */
+        private const val MIME_MVT = "application/vnd.mapbox-vector-tile"
+    }
+
+    /**
+     * Copies the bundled .pmtiles file from Android assets to internal storage.
+     * AssetManager doesn't support random-access reads so we need the file on disk.
+     */
+    private fun loadPmtiles() {
+        val dest = File(filesDir, PMTILES_ASSET)
+        if (dest.exists()) {
+            android.util.Log.i(TAG, "PMTiles already exists at ${dest.absolutePath}")
+            pmtilesReader = PMTilesReader(dest.absolutePath)
+            return
+        }
+
+        try {
+            assets.open(PMTILES_ASSET).use { src ->
+                dest.outputStream().use { out ->
+                    src.copyTo(out)
+                }
+            }
+            android.util.Log.i(TAG, "PMTiles copied to ${dest.absolutePath} (${dest.length()}B)")
+
+            // Create the reader immediately so it's ready for tile requests
+            pmtilesReader = PMTilesReader(dest.absolutePath)
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Failed to copy PMTiles from assets: ${e.message}")
+        }
+    }
+
+    /**
+     * Intercepts tile requests (format: /tiles/{z}/{x}/{y}.pbf) and serves
+     * the tile from the local PMTiles archive.
+     */
+    private fun serveMapTile(url: String): WebResourceResponse? {
+        val reader = pmtilesReader ?: return null
+
+        try {
+            // Parse: https://local.map/tiles/12/3200/2400.pbf
+            val regex = Regex(""".*/tiles/(\d+)/(\d+)/(\d+)\.(\w+)$""")
+            val match = regex.find(url) ?: return null
+
+            val z = match.groupValues[1].toInt()
+            val x = match.groupValues[2].toInt()
+            val y = match.groupValues[3].toInt()
+
+            val tileBytes = reader.getTile(z, x, y)
+            if (tileBytes == null) {
+                android.util.Log.w(TAG, "Tile not found: z=$z x=$x y=$y")
+                // Return a 404-style empty response (marker tile = 1x1 transparent PNG or just 404)
+                return WebResourceResponse("text/plain", "utf-8", 404, "Not Found", null, null)
+            }
+
+            val mime = when (reader.header.tileType) {
+                1 -> MIME_MVT     // vector tile
+                2 -> "image/png"
+                3 -> "image/jpeg"
+                4 -> "image/webp"
+                else -> "application/octet-stream"
+            }
+
+            return WebResourceResponse(mime, null, 200, "OK", null, ByteArrayInputStream(tileBytes))
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Tile serving error: ${e.message}")
+            return null
+        }
     }
 }
