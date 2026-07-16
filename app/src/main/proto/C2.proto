@@ -33,6 +33,7 @@ message C2Chat {
   repeated string to_callsigns = 2;
   string text = 3;
   optional string reply_to_message_id = 4;
+  string uuid = 5;
 }
 
 // ── 2. GIS Object ──
@@ -89,4 +90,5 @@ message C2Image {
   optional string caption = 4;
   optional Coordinate geotag = 5;
   string from_callsign = 6;
+  string uuid = 7;
 }

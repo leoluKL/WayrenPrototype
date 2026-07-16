@@ -196,7 +196,7 @@ class WebAppInterface(
         return when {
             payload.hasChat() -> {
                 val chat = payload.chat
-                """{"type":"c2_chat","from":"${chat.fromCallsign}","text":"${chat.text}","channel":"$channelStr"}"""
+                """{"type":"c2_chat","from":"${chat.fromCallsign}","text":"${chat.text}","uuid":"${chat.uuid}","channel":"$channelStr"}"""
             }
             payload.hasGisObject() -> {
                 val gis = payload.gisObject
@@ -210,7 +210,7 @@ class WebAppInterface(
                 val img = payload.image
                 Log.i(TAG, "Received C2Image: raw=${img.data.size()}B mime=${img.mimeType}")
                 val b64 = android.util.Base64.encodeToString(img.data.toByteArray(), android.util.Base64.NO_WRAP)
-                """{"type":"c2_image","image_id":"${img.imageId}","mime":"${img.mimeType}","data":"$b64","from":"${img.fromCallsign}","channel":"$channelStr"}"""
+                """{"type":"c2_image","image_id":"${img.imageId}","uuid":"${img.uuid}","mime":"${img.mimeType}","data":"$b64","from":"${img.fromCallsign}","channel":"$channelStr"}"""
             }
             else -> """{"type":"c2_unknown","channel":"$channelStr"}"""
         }
@@ -286,6 +286,7 @@ class WebAppInterface(
                 val chatBuilder = com.wayrenprototype.c2.C2.C2Chat.newBuilder()
                     .setFromCallsign(data.optString("from_callsign", "Android App"))
                     .setText(data.optString("text", ""))
+                    .setUuid(data.optString("uuid", ""))
                 // Optional: to_callsigns
                 val toCallsignsArr = data.optJSONArray("to_callsigns")
                 if (toCallsignsArr != null) {
@@ -373,6 +374,7 @@ class WebAppInterface(
                     .setImageId(data.optString("image_id", ""))
                     .setMimeType(data.optString("mime_type", "image/png"))
                     .setFromCallsign(data.optString("from_callsign", "Android App"))
+                    .setUuid(data.optString("uuid", ""))
                 // Optional: data (base64 encoded string from frontend)
                 val dataStr = data.optString("data", "")
                 if (dataStr.isNotEmpty()) {

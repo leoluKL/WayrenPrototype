@@ -90,31 +90,75 @@ export function SessionsContextProvider({ children }) {
         const chId = data.channel
         if (!chId) return
         extractChannelFromMsg(chId)
-        // Store message if it's a chat type
+
         if (data.type === 'c2_chat' && data.text) {
-          setChatMessagesByChannel(prev => ({
-            ...prev,
-            [chId]: [...(prev[chId] || []), {
-              type: 'c2_chat',
-              from: data.from,
-              text: data.text,
-              timestamp: Date.now()
-            }]
-          }))
+          if (data.uuid) {
+            // Placeholder for a pending image — skip if image already arrived
+            setChatMessagesByChannel(prev => {
+              const channelMsgs = prev[chId] || []
+              if (channelMsgs.some(m => m.type === 'c2_image' && m.uuid === data.uuid)) {
+                return prev
+              }
+              return {
+                ...prev,
+                [chId]: [...channelMsgs, {
+                  type: 'c2_chat',
+                  uuid: data.uuid,
+                  from: data.from,
+                  text: data.text,
+                  timestamp: Date.now()
+                }]
+              }
+            })
+          } else {
+            // Normal text message
+            setChatMessagesByChannel(prev => ({
+              ...prev,
+              [chId]: [...(prev[chId] || []), {
+                type: 'c2_chat',
+                from: data.from,
+                text: data.text,
+                timestamp: Date.now()
+              }]
+            }))
+          }
         }
-        // Store image messages
+
         if (data.type === 'c2_image' && data.data) {
-          setChatMessagesByChannel(prev => ({
-            ...prev,
-            [chId]: [...(prev[chId] || []), {
-              type: 'c2_image',
-              from: data.from,
-              image_id: data.image_id,
-              mime: data.mime,
-              data: data.data,
-              timestamp: Date.now()
-            }]
-          }))
+          setChatMessagesByChannel(prev => {
+            const channelMsgs = prev[chId] || []
+            const loadingIdx = channelMsgs.findIndex(
+              m => m.type === 'c2_chat' && m.uuid === data.uuid
+            )
+            if (loadingIdx !== -1) {
+              // Replace the loading placeholder with the actual image
+              const next = [...channelMsgs]
+              next[loadingIdx] = {
+                type: 'c2_image',
+                from: data.from,
+                image_id: data.image_id,
+                uuid: data.uuid,
+                mime: data.mime,
+                data: data.data,
+                timestamp: Date.now()
+              }
+              return { ...prev, [chId]: next }
+            } else {
+              // No placeholder — just append
+              return {
+                ...prev,
+                [chId]: [...channelMsgs, {
+                  type: 'c2_image',
+                  from: data.from,
+                  image_id: data.image_id,
+                  uuid: data.uuid,
+                  mime: data.mime,
+                  data: data.data,
+                  timestamp: Date.now()
+                }]
+              }
+            }
+          })
         }
       }
     )

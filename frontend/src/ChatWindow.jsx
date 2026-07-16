@@ -73,6 +73,17 @@ export default function ChatWindow({ channelId }) {
     setSending(true)
     try {
       const resized = await resizeImage({ file, maxSizeKB: 50, maxH: 1024, maxW: 1024 })
+      const uuid = crypto.randomUUID()
+
+      // First send a loading placeholder text so the other side sees something immediately
+      callNativeApi('sendC2Payload', {
+        type: 'c2_chat',
+        data: { text: 'Loading image...', uuid, from_callsign: deviceName },
+        channel: channelId,
+        priority: 10
+      })
+
+      // Then resize and send the actual image at low priority
       const reader = new FileReader()
       reader.readAsDataURL(resized)
       reader.onloadend = () => {
@@ -80,12 +91,14 @@ export default function ChatWindow({ channelId }) {
         callNativeApi('sendC2Payload', {
           type: 'c2_image',
           data: {
+            uuid,
             image_id: `${Date.now()}`,
             mime_type: resized.type || 'image/png',
             data: b64,
             from_callsign: deviceName
           },
-          channel: channelId
+          channel: channelId,
+          priority: 1
         })
         setSending(false)
         wasNearBottomRef.current = true
@@ -127,9 +140,11 @@ export default function ChatWindow({ channelId }) {
                   className="max-w-full rounded-lg max-h-48 object-contain cursor-pointer"
                   onClick={() => window.open(`data:${msg.mime};base64,${msg.data}`, '_blank')}
                 />
-              ) : (
+              ) : msg.type === 'c2_chat' && msg.uuid ? (
+                <div className="break-words text-sm text-dim/60 animate-pulse">{msg.text}</div>
+              ) : msg.type === 'c2_chat' ? (
                 <div className="break-words text-sm">{msg.text}</div>
-              )}
+              ) : null}
             </div>
           </div>
         ))}
