@@ -5,8 +5,8 @@ import { callNativeApi } from './nativeBridge'
 
 export default function ChatWindow({ channelId }) {
   const [inputText, setInputText] = useState('')
-  const messagesEndRef = useRef(null)
   const scrollRef = useRef(null)
+  const wasNearBottomRef = useRef(true)
   const { chatMessagesByChannel, deviceName } = useSessionsContext()
   const messages = chatMessagesByChannel[channelId] || []
 
@@ -18,12 +18,18 @@ export default function ChatWindow({ channelId }) {
     })
   }, [channelId, deviceName])
 
-  useEffect(() => {
+  const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20
-    if (nearBottom) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    wasNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 20
+  }, [])
+
+  // Scroll on new messages only if user was near bottom before the new content
+  useEffect(() => {
+    if (wasNearBottomRef.current) {
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+      })
     }
   }, [messages.length])
 
@@ -49,7 +55,7 @@ export default function ChatWindow({ channelId }) {
   return (
     <div className="flex flex-col size-full">
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto pl-3 pr-4 py-1 space-y-1" ref={scrollRef}>
+      <div className="flex-1 overflow-y-auto pl-3 pr-4 py-1 space-y-1" ref={scrollRef} onScroll={handleScroll}>
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full">
             <p className="text-dim text-xs italic">No messages yet.</p>
@@ -66,7 +72,6 @@ export default function ChatWindow({ channelId }) {
             </div>
           </div>
         ))}
-        <div ref={messagesEndRef} />
       </div>
 
       {/* Input bar */}
