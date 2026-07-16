@@ -38,6 +38,11 @@ export default function ChatWindow({ channelId }) {
     if (!text) return
     sendChatText(text)
     setInputText('')
+    // Always scroll to bottom after sending own message
+    wasNearBottomRef.current = true
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+    })
   }
 
   const handleKeyDown = (e) => {
