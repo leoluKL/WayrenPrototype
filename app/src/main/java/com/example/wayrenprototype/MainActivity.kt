@@ -1,10 +1,15 @@
 package com.example.wayrenprototype
 
 import android.annotation.SuppressLint
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import android.webkit.ValueCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -15,6 +20,18 @@ class MainActivity : AppCompatActivity() {
 
     // gRPC client for communicating with the Wayren Companion service on the same device
     private val grpcClient = GrpcClient()
+    private var uploadMessage: ValueCallback<Array<Uri>>? = null
+
+    private val fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            uploadMessage?.onReceiveValue(
+                WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+            )
+        } else {
+            uploadMessage?.onReceiveValue(null)
+        }
+        uploadMessage = null
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,6 +64,23 @@ class MainActivity : AppCompatActivity() {
             ): WebResourceResponse? {
                 // Intercept asset files and serve them under the secure domain
                 return assetLoader.shouldInterceptRequest(request.url)
+            }
+        }
+
+        // Required for <input type="file"> to work in WebView
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                uploadMessage = filePathCallback
+                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    type = "image/*"
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                }
+                fileChooserLauncher.launch(Intent.createChooser(intent, "Select Image"))
+                return true
             }
         }
 

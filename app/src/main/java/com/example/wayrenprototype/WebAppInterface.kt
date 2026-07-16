@@ -208,7 +208,9 @@ class WebAppInterface(
             }
             payload.hasImage() -> {
                 val img = payload.image
-                """{"type":"c2_image","image_id":"${img.imageId}","mime":"${img.mimeType}","channel":"$channelStr"}"""
+                Log.i(TAG, "Received C2Image: raw=${img.data.size()}B mime=${img.mimeType}")
+                val b64 = android.util.Base64.encodeToString(img.data.toByteArray(), android.util.Base64.NO_WRAP)
+                """{"type":"c2_image","image_id":"${img.imageId}","mime":"${img.mimeType}","data":"$b64","from":"${img.fromCallsign}","channel":"$channelStr"}"""
             }
             else -> """{"type":"c2_unknown","channel":"$channelStr"}"""
         }
@@ -247,7 +249,6 @@ class WebAppInterface(
     private suspend fun handleSendC2Payload(jsonPayload: String): String {
         return try {
             val payload = JSONObject(jsonPayload)
-            Log.i(TAG, "Send C2 message ($jsonPayload)...")
             val type = payload.optString("type", "")
             val dataObj = payload.optJSONObject("data")
                 ?: return """{"status":"error","message":"data object required"}"""
@@ -258,6 +259,13 @@ class WebAppInterface(
             val wayrenChannelId = wayrenChannelIdStr.toULong()
 
             val c2Payload = buildC2Payload(type, dataObj)
+
+            if (type == "c2_image") {
+                val dataSize = dataObj.optString("data", "").length
+                Log.i(TAG, "Send C2 message: type=$type channel=$wayrenChannelIdStr data_size=${dataSize}B")
+            } else {
+                Log.i(TAG, "Send C2 message ($jsonPayload)...")
+            }
 
             val priority = if (payload.has("priority")) payload.getInt("priority") else 10
 

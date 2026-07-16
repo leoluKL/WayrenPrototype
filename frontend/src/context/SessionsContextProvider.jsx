@@ -95,8 +95,23 @@ export function SessionsContextProvider({ children }) {
           setChatMessagesByChannel(prev => ({
             ...prev,
             [chId]: [...(prev[chId] || []), {
+              type: 'c2_chat',
               from: data.from,
               text: data.text,
+              timestamp: Date.now()
+            }]
+          }))
+        }
+        // Store image messages
+        if (data.type === 'c2_image' && data.data) {
+          setChatMessagesByChannel(prev => ({
+            ...prev,
+            [chId]: [...(prev[chId] || []), {
+              type: 'c2_image',
+              from: data.from,
+              image_id: data.image_id,
+              mime: data.mime,
+              data: data.data,
               timestamp: Date.now()
             }]
           }))

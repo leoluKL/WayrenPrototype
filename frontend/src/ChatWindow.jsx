@@ -1,12 +1,16 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Send, Paperclip } from 'lucide-react'
+import { Send, Paperclip, Image, Camera } from 'lucide-react'
 import { useSessionsContext } from './context/GlobalContext'
 import { callNativeApi } from './nativeBridge'
+import { resizeImage } from './resizeImage'
 
 export default function ChatWindow({ channelId }) {
   const [inputText, setInputText] = useState('')
+  const [showAttach, setShowAttach] = useState(false)
+  const [sending, setSending] = useState(false)
   const scrollRef = useRef(null)
   const wasNearBottomRef = useRef(true)
+  const attachRef = useRef(null)
   const { chatMessagesByChannel, deviceName } = useSessionsContext()
   const messages = chatMessagesByChannel[channelId] || []
 
@@ -33,12 +37,23 @@ export default function ChatWindow({ channelId }) {
     }
   }, [messages.length])
 
+  // Close attach popup on click outside
+  useEffect(() => {
+    if (!showAttach) return
+    const handleClick = (e) => {
+      if (attachRef.current && !attachRef.current.contains(e.target)) {
+        setShowAttach(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showAttach])
+
   const handleSend = () => {
     const text = inputText.trim()
     if (!text) return
     sendChatText(text)
     setInputText('')
-    // Always scroll to bottom after sending own message
     wasNearBottomRef.current = true
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
@@ -51,6 +66,38 @@ export default function ChatWindow({ channelId }) {
       handleSend()
     }
   }
+
+  const handleImagePicked = useCallback(async (file) => {
+    if (!file) return
+    setShowAttach(false)
+    setSending(true)
+    try {
+      const resized = await resizeImage({ file, maxSizeKB: 50, maxH: 1024, maxW: 1024 })
+      const reader = new FileReader()
+      reader.readAsDataURL(resized)
+      reader.onloadend = () => {
+        const b64 = reader.result.split(',')[1]
+        callNativeApi('sendC2Payload', {
+          type: 'c2_image',
+          data: {
+            image_id: `${Date.now()}`,
+            mime_type: resized.type || 'image/png',
+            data: b64,
+            from_callsign: deviceName
+          },
+          channel: channelId
+        })
+        setSending(false)
+        wasNearBottomRef.current = true
+        requestAnimationFrame(() => {
+          scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+        })
+      }
+    } catch (e) {
+      console.error('Image resize failed:', e)
+      setSending(false)
+    }
+  }, [channelId, deviceName])
 
   const formatTime = (ts) => {
     const d = new Date(ts)
@@ -73,7 +120,16 @@ export default function ChatWindow({ channelId }) {
                 <div>{msg.from}</div>
                 <div className="ml-2">{formatTime(msg.timestamp)}</div>
               </div>
-              <div className="break-words text-sm">{msg.text}</div>
+              {msg.type === 'c2_image' ? (
+                <img
+                  src={`data:${msg.mime};base64,${msg.data}`}
+                  alt=""
+                  className="max-w-full rounded-lg max-h-48 object-contain cursor-pointer"
+                  onClick={() => window.open(`data:${msg.mime};base64,${msg.data}`, '_blank')}
+                />
+              ) : (
+                <div className="break-words text-sm">{msg.text}</div>
+              )}
             </div>
           </div>
         ))}
@@ -81,9 +137,53 @@ export default function ChatWindow({ channelId }) {
 
       {/* Input bar */}
       <div className="flex items-center gap-1.5 border-t border-border px-2 py-1.5 shrink-0">
-        <button className="bg-transparent border-none text-dim p-2.5 rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center shrink-0">
-          <Paperclip size={18} />
-        </button>
+        <div className="relative" ref={attachRef}>
+          <button
+            className="bg-transparent border-none text-dim p-2.5 rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center shrink-0"
+            onClick={() => setShowAttach(v => !v)}
+            disabled={sending}
+          >
+            {sending ? (
+              <span className="w-[18px] h-[18px] border-2 border-dim border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Paperclip size={18} />
+            )}
+          </button>
+          {showAttach && (
+            <div className="absolute bottom-full left-0 mb-1 bg-surface border border-border rounded-lg p-1 min-w-[160px] shadow-lg shadow-black/40 z-50">
+              <div className="relative flex items-center gap-2.5 w-full px-3.5 py-3 text-main text-sm rounded-lg min-h-[44px]">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) handleImagePicked(file)
+                    e.target.value = ''
+                  }}
+                />
+                <Image size={16} className="text-dim shrink-0" />
+                Photo Gallery
+              </div>
+              <div className="relative flex items-center gap-2.5 w-full px-3.5 py-3 text-main text-sm rounded-lg min-h-[44px]">
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) handleImagePicked(file)
+                    e.target.value = ''
+                  }}
+                />
+                <Camera size={16} className="text-dim shrink-0" />
+                Camera
+              </div>
+            </div>
+          )}
+        </div>
+
         <input
           className="flex-1 bg-hover border-none text-main text-sm rounded-lg px-3 py-2.5 min-h-[40px] outline-none placeholder:text-dim/50"
           placeholder="Type a message..."
@@ -94,7 +194,7 @@ export default function ChatWindow({ channelId }) {
         <button
           className="bg-accent border-none text-white p-2.5 rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center shrink-0 disabled:opacity-40"
           onClick={handleSend}
-          disabled={!inputText.trim()}
+          disabled={!inputText.trim() || sending}
         >
           <Send size={18} />
         </button>
