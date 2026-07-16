@@ -247,6 +247,7 @@ class WebAppInterface(
     private suspend fun handleSendC2Payload(jsonPayload: String): String {
         return try {
             val payload = JSONObject(jsonPayload)
+            Log.i(TAG, "Send C2 message ($jsonPayload)...")
             val type = payload.optString("type", "")
             val dataObj = payload.optJSONObject("data")
                 ?: return """{"status":"error","message":"data object required"}"""

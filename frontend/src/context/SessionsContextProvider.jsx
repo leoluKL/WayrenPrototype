@@ -10,6 +10,7 @@ export function SessionsContextProvider({ children }) {
   const [savedChannels, setSavedChannels] = useState([]) // [{ id, name }] — from StreamAllChannels
   const [discoveredChannelsFromMessages, setDiscoveredChannelsFromMessages] = useState([]) // [{ id, name }] — from incoming C2 msgs
   const [openChannels, setOpenChannels] = useState([]) // [{ id, name }]
+  const [chatMessagesByChannel, setChatMessagesByChannel] = useState({}) // { [channelId]: [{ from, text, timestamp, type }] }
 
   // Poll connection status
   useEffect(() => {
@@ -52,7 +53,7 @@ export function SessionsContextProvider({ children }) {
     })
   }, [])
 
-  // Subscribe to C2 message stream — discover channels from incoming messages
+  // Subscribe to C2 message stream — discover channels + store messages
   useEffect(() => {
     const unsubscribe = subscribeToNativeInternalStream(
       'streamAllWayrenNewMessages',
@@ -61,6 +62,17 @@ export function SessionsContextProvider({ children }) {
         const chId = data.channel
         if (!chId) return
         extractChannelFromMsg(chId)
+        // Store message if it's a chat type
+        if (data.type === 'c2_chat' && data.text) {
+          setChatMessagesByChannel(prev => ({
+            ...prev,
+            [chId]: [...(prev[chId] || []), {
+              from: data.from,
+              text: data.text,
+              timestamp: Date.now()
+            }]
+          }))
+        }
       }
     )
     return () => unsubscribe()
@@ -80,6 +92,7 @@ export function SessionsContextProvider({ children }) {
       savedChannels,
       discoveredChannelsFromMessages,
       openChannels,
+      chatMessagesByChannel,
       addChannelTab,
       closeChannel,
       extractChannelFromMsg

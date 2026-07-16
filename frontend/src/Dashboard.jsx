@@ -1,9 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Circle, MoreHorizontal, Hash, X, Plus } from 'lucide-react'
+import { Circle, MoreHorizontal, Hash, X, Plus, Map, MessageSquare } from 'lucide-react'
 import { useSessionsContext } from './context/GlobalContext'
-import { callNativeApi } from './nativeBridge'
 import ChannelsListWindow from './ChannelsListWindow'
 import CreateChannel from './CreateChannel'
+import ChatWindow from './ChatWindow'
 
 export default function Dashboard() {
   const [showMenu, setShowMenu] = useState(false)
@@ -34,16 +34,19 @@ export default function Dashboard() {
   const handleAddTab = useCallback((chId, chName) => {
     addChannelTab(chId, chName)
     setCurrentTabId(chId)
+    setShowDiscoveredChannelsWindow(false)
+    setShowSavedChannelsWindow(false)
   }, [addChannelTab])
 
-  const handleSendTest = useCallback((chId, chName) => {
-    callNativeApi('sendC2Payload', {
-      type: 'c2_chat',
-      data: { text: `I am ${chName}`, from_callsign: 'Android App' },
-      channel: chId
-    })
-  }, [])
-
+  const handleCloseChannel = useCallback((chId) => {
+    const idx = openChannels.findIndex(ch => ch.id === chId)
+    if (currentTabId === chId) {
+      if (idx > 0) setCurrentTabId(openChannels[idx - 1].id)
+      else if (idx == 0 && openChannels.length > 1) setCurrentTabId(openChannels[1].id)
+      else setCurrentTabId(null)
+    }
+    closeChannel(chId)
+  }, [openChannels, currentTabId, closeChannel])
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -68,22 +71,28 @@ export default function Dashboard() {
                 onClick={() => { setShowMenu(false); setShowSavedChannelsWindow(true) }}
               >
                 Saved Channels
-                {savedChannels.length > 0 && (
-                  <span className="ml-auto bg-accent text-white text-[11px] px-1.5 py-0.5 rounded-full font-semibold">
-                    {savedChannels.length}
-                  </span>
-                )}
+                {(() => {
+                  const available = savedChannels.filter(ch => !openChannels.some(oc => oc.id === ch.id))
+                  return available.length > 0 && (
+                    <span className="ml-auto bg-accent text-white text-[11px] px-1.5 py-0.5 rounded-full font-semibold">
+                      {available.length}
+                    </span>
+                  )
+                })()}
               </button>
               <button
                 className="flex items-center gap-2.5 w-full px-3.5 py-3 bg-transparent border-none text-main text-sm rounded-lg text-left min-h-[44px]"
                 onClick={() => { setShowMenu(false); setShowDiscoveredChannelsWindow(true) }}
               >
                 Discovered Channels
-                {discoveredChannelsFromMessages.length > 0 && (
-                  <span className="ml-auto bg-accent text-white text-[11px] px-1.5 py-0.5 rounded-full font-semibold">
-                    {discoveredChannelsFromMessages.length}
-                  </span>
-                )}
+                {(() => {
+                  const available = discoveredChannelsFromMessages.filter(ch => !openChannels.some(oc => oc.id === ch.id))
+                  return available.length > 0 && (
+                    <span className="ml-auto bg-accent text-white text-[11px] px-1.5 py-0.5 rounded-full font-semibold">
+                      {available.length}
+                    </span>
+                  )
+                })()}
               </button>
               <button
                 className="flex items-center gap-2.5 w-full px-3.5 py-3 bg-transparent border-none text-main text-sm rounded-lg text-left min-h-[44px]"
@@ -120,19 +129,35 @@ export default function Dashboard() {
           openChannels.map(ch => (
             <div
               key={ch.id}
-              className={`w-full h-full ${ch.id === currentTabId ? '' : 'hidden'}`}
+              className={`w-full h-full flex flex-col ${ch.id === currentTabId ? '' : 'hidden'}`}
             >
-              <div className="relative p-4 h-full">
-                <button className="absolute top-2 right-2 bg-transparent border-none text-dim p-2 rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center" onClick={() => closeChannel(ch.id)}>
-                  <X size={18} />
+              {/* Chat: upper 1/3 */}
+              <div className="flex-[1_1_33.333%] min-h-0 flex relative">
+                <button className="absolute top-[2px] right-[2px] bg-white border-none text-dim p-1 rounded-full flex items-center justify-center" onClick={() => handleCloseChannel(ch.id)}>
+                  <X size={16} />
                 </button>
-                <div className="text-main text-sm mb-4">{ch.name}</div>
-                <button
-                  className="bg-accent text-white text-sm px-4 py-2.5 rounded-lg min-h-[44px]"
-                  onClick={() => handleSendTest(ch.id, ch.name)}
-                >
-                  Send Test C2_chat
-                </button>
+                <ChatWindow channelId={ch.id} />
+              </div>
+
+              {/* Toolbar + GIS: lower 2/3 */}
+              <div className="flex-[2_2_66.666%] min-h-0 flex flex-col">
+                {/* Toolbar row */}
+                <div className="flex items-center gap-1 px-2 py-1.5 border-y border-border bg-surface shrink-0 min-h-[44px]">
+                  <button className="flex items-center gap-1.5 bg-hover border-none text-dim text-xs px-3 py-2 rounded-lg min-h-[36px]">
+                    <Map size={14} /> Shape
+                  </button>
+                  <button className="flex items-center gap-1.5 bg-hover border-none text-dim text-xs px-3 py-2 rounded-lg min-h-[36px]">
+                    Share Location
+                  </button>
+                  <button className="flex items-center gap-1.5 bg-hover border-none text-dim text-xs px-3 py-2 rounded-lg min-h-[36px]">
+                    Tactical Draw
+                  </button>
+                </div>
+
+                {/* GIS / Map */}
+                <div className="flex-1 min-h-0 bg-[#1a1a2e] flex items-center justify-center">
+                  <p className="text-dim text-xs italic">GIS Map — coming soon</p>
+                </div>
               </div>
             </div>
           ))
@@ -153,7 +178,7 @@ export default function Dashboard() {
         <ChannelsListWindow
           title="Discovered Channels"
           channels={discoveredChannelsFromMessages}
-          excludeArr={[...openChannels,...savedChannels]}
+          excludeArr={[...openChannels]}
           onAddTab={handleAddTab}
           onClose={() => setShowDiscoveredChannelsWindow(false)}
         />
