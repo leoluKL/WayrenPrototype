@@ -4,6 +4,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { callNativeApi } from './nativeBridge'
 import { useSessionsContext } from './context/GlobalContext'
+import SwitchButton from './common/SwitchButton'
 
 // Light Google Maps–style theme for OpenMapTiles schema
 function buildStyle() {
@@ -60,7 +61,20 @@ function buildStyle() {
   }
 }
 
-export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, onTacticalDrawEnd }) {
+// ── Shape icons (used in the shape dropdown) ──
+const SHAPE_ITEMS = [
+  { label: 'Tank', img: 'tank.png' },
+  { label: 'Drone', img: 'drone.png' },
+  { label: 'Red Human', img: 'redhuman.png' },
+  { label: 'Blue Human', img: 'bluehuman.png' },
+]
+
+const TACTICAL_COLORS = [
+  { label: 'Red Line', color: '#FF0000' },
+  { label: 'Blue Line', color: '#0000FF' },
+]
+
+export default function MapGis({ channelId }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
   const objectMarkersRef = useRef({})
@@ -72,11 +86,22 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
   const [actionBarPos, setActionBarPos] = useState({ x: 0, y: 0 })
   const [selectedDrawFeatureId, setSelectedDrawFeatureId] = useState(null)
   const [drawActionBarPos, setDrawActionBarPos] = useState({ x: 0, y: 0 })
+
+  // ── Toolbar internal state ──
+  const [meOn, setMeOn] = useState(false)
+  const [showShapeMenu, setShowShapeMenu] = useState(false)
+  const [tacticalDrawOn, setTacticalDrawOn] = useState(false)
+  const [tacticalDrawColor, setTacticalDrawColor] = useState('#FF0000')
+  const [showTacticalMenu, setShowTacticalMenu] = useState(false)
+  const shapeMenuRef = useRef(null)
+  const tacticalMenuRef = useRef(null)
+
+  // Keep ref in sync for use in mount-time callbacks
   const tacticalDrawOnRef = useRef(tacticalDrawOn)
   useEffect(() => { tacticalDrawOnRef.current = tacticalDrawOn }, [tacticalDrawOn])
   const geoLocationTacticalDrawMenu = useRef(null)
 
-  const { registerGisView, unregisterGisView } = useSessionsContext()
+  const { registerGisView, unregisterGisView, deviceName } = useSessionsContext()
 
   // Register our own internal ref on mount, unregister on unmount
   useEffect(() => {
@@ -190,27 +215,91 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
     peopleMarkersRef.current[obj.id] = marker
   }
 
-  useImperativeHandle(gisViewRef, () => ({
-    placeShape(shape) {
-      const map = mapRef.current
-      if (!map) return
+  // ── Standalone functions exposed via ref AND used internally by toolbar ──
 
-      const center = map.getCenter()
-      const id = crypto.randomUUID()
+  function placeShape(shape) {
+    const map = mapRef.current
+    if (!map) return
 
-      const newObj = {
-        id,
-        label: shape.label,
-        img: shape.img,
-        lng: center.lng,
-        lat: center.lat,
-        rotation: 0
+    const center = map.getCenter()
+    const id = crypto.randomUUID()
+
+    const newObj = {
+      id,
+      label: shape.label,
+      img: shape.img,
+      lng: center.lng,
+      lat: center.lat,
+      rotation: 0
+    }
+
+    setObjects(prev => [...prev, newObj])
+    createMarker(newObj, map)
+    sendGisUpdate(newObj.id, newObj.label, newObj.lng, newObj.lat, newObj.rotation, newObj.img)
+  }
+
+  function showMyLocation(callsign) {
+    // Clean up previous
+    if (myLocationWatchIdRef.current != null) {
+      navigator.geolocation.clearWatch(myLocationWatchIdRef.current)
+      myLocationWatchIdRef.current = null
+    }
+
+    const map = mapRef.current
+    if (!map) return
+
+    const objectId = `people_location_${callsign}`
+    let firstFix = true
+
+    myLocationWatchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude, heading } = pos.coords
+        const course = heading != null && !isNaN(heading) ? heading : 0
+
+        // Send C2 so all devices see this device's location
+        sendGisUpdate(objectId, callsign, longitude, latitude, course, 'people_location')
+
+        if (firstFix) {
+          firstFix = false
+          map.flyTo({ center: [longitude, latitude], zoom: 14, duration: 1000 })
+        }
+      },
+      (err) => {
+        console.warn('GPS error:', err.message)
+      },
+      { enableHighAccuracy: false, maximumAge: 3600000 }
+    )
+  }
+
+  function hideMyLocation(callsign) {
+    if (myLocationWatchIdRef.current != null) {
+      navigator.geolocation.clearWatch(myLocationWatchIdRef.current)
+      myLocationWatchIdRef.current = null
+    }
+    if (callsign) {
+      sendGisDelete(`people_location_${callsign}`, '', 'people_location')
+    }
+  }
+
+  function syncMapBoundary() {
+    const map = mapRef.current
+    if (!map) return
+    const center = map.getCenter()
+    const zoom = map.getZoom()
+    callNativeApi('sendC2Payload', {
+      type: 'c2_sync_map_boundary',
+      channel: channelId,
+      priority: 10,
+      data: {
+        center_lat: center.lat,
+        center_lng: center.lng,
+        zoom
       }
+    })
+  }
 
-      setObjects(prev => [...prev, newObj])
-      createMarker(newObj, map)
-      sendGisUpdate(newObj.id, newObj.label, newObj.lng, newObj.lat, newObj.rotation, newObj.img)
-    },
+  useImperativeHandle(gisViewRef, () => ({
+    placeShape,
     handleGisEvent(event) {
       const map = mapRef.current
       if (!map) return
@@ -265,63 +354,9 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
         }
       }
     },
-    showMyLocation(callsign) {
-      // Clean up previous
-      if (myLocationWatchIdRef.current != null) {
-        navigator.geolocation.clearWatch(myLocationWatchIdRef.current)
-        myLocationWatchIdRef.current = null
-      }
-
-      const map = mapRef.current
-      if (!map) return
-
-      const objectId = `people_location_${callsign}`
-      let firstFix = true
-
-      myLocationWatchIdRef.current = navigator.geolocation.watchPosition(
-        (pos) => {
-          const { latitude, longitude, heading } = pos.coords
-          const course = heading != null && !isNaN(heading) ? heading : 0
-
-          // Send C2 so all devices see this device's location
-          sendGisUpdate(objectId, callsign, longitude, latitude, course, 'people_location')
-
-          if (firstFix) {
-            firstFix = false
-            map.flyTo({ center: [longitude, latitude], zoom: 14, duration: 1000 })
-          }
-        },
-        (err) => {
-          console.warn('GPS error:', err.message)
-        },
-        { enableHighAccuracy: false, maximumAge: 3600000 }
-      )
-    },
-    hideMyLocation(callsign) {
-      if (myLocationWatchIdRef.current != null) {
-        navigator.geolocation.clearWatch(myLocationWatchIdRef.current)
-        myLocationWatchIdRef.current = null
-      }
-      if (callsign) {
-        sendGisDelete(`people_location_${callsign}`, '', 'people_location')
-      }
-    },
-    syncMapBoundary() {
-      const map = mapRef.current
-      if (!map) return
-      const center = map.getCenter()
-      const zoom = map.getZoom()
-      callNativeApi('sendC2Payload', {
-        type: 'c2_sync_map_boundary',
-        channel: channelId,
-        priority: 10,
-        data: {
-          center_lat: center.lat,
-          center_lng: center.lng,
-          zoom
-        }
-      })
-    },
+    showMyLocation,
+    hideMyLocation,
+    syncMapBoundary,
     handleSyncMapBoundary(data) {
       const map = mapRef.current
       if (!map) return
@@ -380,10 +415,6 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
     map.addControl(new maplibregl.NavigationControl({ showZoom: false }), 'top-right')
     mapRef.current = map
 
-    // Resize map when container becomes visible (e.g. tab switching)
-    const ro = new ResizeObserver(() => map.resize())
-    ro.observe(containerRef.current)
-
     // Tactical draw source + layer (added once on mount)
     map.on('load', () => {
       try {
@@ -431,7 +462,6 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
       objectMarkersRef.current = {}
       Object.values(peopleMarkersRef.current).forEach(m => m.remove())
       peopleMarkersRef.current = {}
-      ro.disconnect()
       if (mapRef.current) {
         mapRef.current.remove()
         mapRef.current = null
@@ -624,7 +654,7 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
         gisViewRef.current?.syncMapBoundary()
         const feature = drawFeaturesRef.current[drawFeaturesRef.current.length - 1]
         sendTacticalDrawC2(feature)
-        onTacticalDrawEnd?.()
+        setTacticalDrawOn(false)
       }
     }
 
@@ -682,10 +712,127 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
     setSelectedObjectId(null)
   }
 
+  // ── Click-outside handler for shape / tactical menus ──
+  useEffect(() => {
+    if (!showShapeMenu && !showTacticalMenu) return
+    const handleClick = (e) => {
+      if (showShapeMenu && shapeMenuRef.current && !shapeMenuRef.current.contains(e.target)) {
+        setShowShapeMenu(false)
+      }
+      if (showTacticalMenu && tacticalMenuRef.current && !tacticalMenuRef.current.contains(e.target)) {
+        setShowTacticalMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showShapeMenu, showTacticalMenu])
+
   return (
-    <div className="relative size-full">
+    <div className="relative size-full flex flex-col">
       <style>{`.marker-pointer-events-none .gis-marker,.marker-pointer-events-none .people-location-marker{pointer-events:none!important}`}</style>
-      <div ref={containerRef} className="size-full" />
+
+      {/* Toolbar row */}
+      <div className="flex items-center gap-1 px-2 py-1.5 border-y border-border bg-surface shrink-0 min-h-[44px]">
+        {/* Shape button + dropdown */}
+        <div className="relative" ref={shapeMenuRef}>
+          <button
+            className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg min-h-[36px] bg-hover text-dim"
+            onClick={() => setShowShapeMenu(v => !v)}
+          >
+            Shape
+          </button>
+          {showShapeMenu && (
+            <div className="absolute top-full left-0 mt-1 bg-surface border border-border rounded-lg p-1 min-w-[140px] z-[100] shadow-lg shadow-black/40" onMouseDown={(e) => e.stopPropagation()}>
+              {SHAPE_ITEMS.map(item => (
+                <button
+                  key={item.label}
+                  className="flex items-center gap-2.5 w-full px-3.5 py-3 bg-transparent border-none text-main text-sm rounded-lg text-left min-h-[44px] hover:bg-hover transition-colors"
+                  onClick={() => {
+                    placeShape(item)
+                    setShowShapeMenu(false)
+                  }}
+                >
+                  <img src={item.img} alt={item.label} className="max-h-8" />
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Me toggle switch */}
+        <SwitchButton
+          isOn={meOn}
+          onToggle={(newVal) => {
+            if (newVal) {
+              showMyLocation(deviceName)
+            } else {
+              hideMyLocation(deviceName)
+            }
+            setMeOn(newVal)
+          }}
+          onText="Show Me"
+          offText="Hide Me"
+          width="w-[95px]"
+        />
+
+        {/* Sync Boundary */}
+        <button
+          className="flex items-center gap-1.5 bg-hover border-none text-dim text-xs px-3 py-2 rounded-lg min-h-[36px] transition-colors duration-1000"
+          onClick={(e) => {
+            syncMapBoundary()
+            const el = e.currentTarget
+            el.style.backgroundColor = '#16a34a'
+            el.style.color = 'white'
+            setTimeout(() => {
+              el.style.backgroundColor = ''
+              el.style.color = ''
+            }, 1000)
+          }}
+        >
+          Sync Boundary
+        </button>
+
+        {/* Tactical Draw */}
+        <div className="relative" ref={tacticalMenuRef}>
+          <button
+            className={`flex items-center gap-1.5 border-none text-xs px-3 py-2 rounded-lg min-h-[36px] transition-all duration-150 ${tacticalDrawOn ? 'bg-green-700 text-white shadow-[inset_0_2px_6px_rgba(0,0,0,0.35)] translate-y-[1px]' : 'bg-hover text-dim shadow-sm'}`}
+            onClick={() => {
+              if (tacticalDrawOn) {
+                setTacticalDrawOn(false)
+              } else {
+                setShowTacticalMenu(v => !v)
+              }
+            }}
+          >
+            {tacticalDrawOn && (
+              <span className="inline-block w-3 h-3 rounded-full shrink-0" style={{ background: tacticalDrawColor }} />
+            )}
+            Tactical Draw
+          </button>
+          {showTacticalMenu && (
+            <div className="absolute top-full mt-1 bg-surface border border-border rounded-lg p-1 min-w-[160px] z-[100] shadow-lg shadow-black/40" style={{ right: -8 }} onMouseDown={(e) => e.stopPropagation()}>
+              {TACTICAL_COLORS.map(item => (
+                <button
+                  key={item.label}
+                  className="flex items-center gap-2.5 w-full px-3.5 py-3 bg-transparent border-none text-main text-sm rounded-lg text-left min-h-[44px] hover:bg-hover transition-colors"
+                  onClick={() => {
+                    setTacticalDrawColor(item.color)
+                    setTacticalDrawOn(true)
+                    setShowTacticalMenu(false)
+                  }}
+                >
+                  <span className="inline-block w-4 h-4 rounded-full" style={{ background: item.color }} />
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Map */}
+      <div ref={containerRef} className="flex-1 min-h-0" />
 
       {/* Floating action bar for selected object */}
       {selectedObjectId && (
