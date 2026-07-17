@@ -27,6 +27,8 @@ React Frontend (WebView)
 2. Run `npm run deploy` — builds with Vite and copies `dist/` → `app/src/main/assets/www/`
 3. Vite `base: '/assets/www/'` matches Android `WebViewAssetLoader` serving path
 
+**IMPORTANT**: For any frontend code change, always run `npm run deploy` so the changes get copied to Android assets. Without this step, the APK rebuild won't include your frontend changes even though the Vite dev server shows them.
+
 ## gRPC Service: `GrpcMessageService.proto`
 
 **Package**: `ee.wayren.icp.services.grpc.MessageService`

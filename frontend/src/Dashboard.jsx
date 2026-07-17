@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Circle, MoreHorizontal, Hash, X, Plus, Map, MessageSquare } from 'lucide-react'
+import { Circle, MoreHorizontal, Hash, X, Plus, MessageSquare } from 'lucide-react'
 import { useSessionsContext } from './context/GlobalContext'
 import ChannelsListWindow from './ChannelsListWindow'
 import CreateChannel from './CreateChannel'
@@ -12,7 +12,11 @@ export default function Dashboard() {
   const [showDiscoveredChannelsWindow, setShowDiscoveredChannelsWindow] = useState(false)
   const [showCreateChannel, setShowCreateChannel] = useState(false)
   const [currentTabId, setCurrentTabId] = useState(null)
+  const [meOn, setMeOn] = useState(false)
+  const [showShapeMenu, setShowShapeMenu] = useState(false)
+  const [tacticalDrawOn, setTacticalDrawOn] = useState(false)
   const menuRef = useRef(null)
+  const shapeRef = useRef(null)
 
   const { connected, savedChannels, discoveredChannelsFromMessages, openChannels, addChannelTab, closeChannel } = useSessionsContext()
 
@@ -21,12 +25,15 @@ export default function Dashboard() {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         setShowMenu(false)
       }
+      if (shapeRef.current && !shapeRef.current.contains(e.target)) {
+        setShowShapeMenu(false)
+      }
     }
-    if (showMenu) {
+    if (showMenu || showShapeMenu) {
       document.addEventListener('mousedown', handleClick)
       return () => document.removeEventListener('mousedown', handleClick)
     }
-  }, [showMenu])
+  }, [showMenu, showShapeMenu])
 
   const handleTabClick = useCallback((chId) => {
     setCurrentTabId(chId)
@@ -144,13 +151,62 @@ export default function Dashboard() {
               <div className="flex-[2_2_66.666%] min-h-0 flex flex-col">
                 {/* Toolbar row */}
                 <div className="flex items-center gap-1 px-2 py-1.5 border-y border-border bg-surface shrink-0 min-h-[44px]">
-                  <button className="flex items-center gap-1.5 bg-hover border-none text-dim text-xs px-3 py-2 rounded-lg min-h-[36px]">
-                    <Map size={14} /> Shape
+                  {/* Shape button + dropdown */}
+                  <div className="relative" ref={shapeRef}>
+                    <button
+                      className="flex items-center gap-1.5 bg-hover border-none text-dim text-xs px-3 py-2 rounded-lg min-h-[36px]"
+                      onClick={() => setShowShapeMenu(v => !v)}
+                    >
+                      Shape
+                    </button>
+                    {showShapeMenu && (
+                      <div className="absolute top-full left-0 mt-1 bg-surface border border-border rounded-lg p-1 min-w-[140px] z-[100] shadow-lg shadow-black/40">
+                        {[
+                          { label: 'Tank', img: 'tank.png' },
+                          { label: 'Drone', img: 'drone.png' },
+                          { label: 'Red Human', img: 'redhuman.png' },
+                          { label: 'Blue Human', img: 'bluehuman.png' },
+                        ].map(item => (
+                          <button
+                            key={item.label}
+                            className="flex items-center gap-2.5 w-full px-3.5 py-3 bg-transparent border-none text-main text-sm rounded-lg text-left min-h-[44px] hover:bg-hover transition-colors"
+                            onClick={() => setShowShapeMenu(false)}
+                          >
+                            <img src={item.img} alt={item.label} className="max-h-8" />
+                            <span>{item.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* Me toggle switch */}
+                  <div
+                    className={`relative flex-shrink-0 w-[95px] h-8 flex items-center cursor-pointer rounded-full transition-colors duration-300 ${meOn ? "bg-green-600" : "bg-red-600"} text-xs`}
+                    onClick={() => setMeOn(v => !v)}
+                  >
+                    <div className={`absolute w-7 h-7 bg-white rounded-full transition-all duration-300 shadow-sm ${meOn ? "left-[calc(100%-30px)]" : "left-[2px]"}`} />
+                    <span className={`w-full flex px-3 text-white font-bold transition-all select-none ${meOn ? "justify-start" : "justify-end"}`}>
+                      {meOn ? "Show Me" : "Hide Me"}
+                    </span>
+                  </div>
+                  <button
+                    className="flex items-center gap-1.5 bg-hover border-none text-dim text-xs px-3 py-2 rounded-lg min-h-[36px] transition-colors duration-1000"
+                    onClick={(e) => {
+                      const el = e.currentTarget
+                      el.style.backgroundColor = '#16a34a'
+                      el.style.color = 'white'
+                      setTimeout(() => {
+                        el.style.backgroundColor = ''
+                        el.style.color = ''
+                      }, 1000)
+                    }}
+                  >
+                    Sync Boundary
                   </button>
-                  <button className="flex items-center gap-1.5 bg-hover border-none text-dim text-xs px-3 py-2 rounded-lg min-h-[36px]">
-                    Share Location
-                  </button>
-                  <button className="flex items-center gap-1.5 bg-hover border-none text-dim text-xs px-3 py-2 rounded-lg min-h-[36px]">
+                  <button
+                    className={`flex items-center gap-1.5 border-none text-xs px-3 py-2 rounded-lg min-h-[36px] transition-all duration-150 ${tacticalDrawOn ? 'bg-green-700 text-white shadow-[inset_0_2px_6px_rgba(0,0,0,0.35)] translate-y-[1px]' : 'bg-hover text-dim shadow-sm'}`}
+                    onClick={() => setTacticalDrawOn(v => !v)}
+                  >
                     Tactical Draw
                   </button>
                 </div>
