@@ -351,7 +351,7 @@ export default function ChatWindow({ channelId }) {
           onClick={(e) => {
             if (e.target === e.currentTarget && !isRecordingRef.current) setShowRecordWindow(false)
           }}>
-          <div className="flex flex-col items-center gap-4 select-none touch-none">
+          <div className="flex flex-col items-center gap-4 select-none touch-none bg-surface border border-border rounded-xl px-8 py-6 shadow-lg">
             <div
               className={isRecordingRef.current
                 ? "bg-red-700 rounded-full p-8 animate-pulse"

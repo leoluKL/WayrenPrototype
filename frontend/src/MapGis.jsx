@@ -380,6 +380,10 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
     map.addControl(new maplibregl.NavigationControl({ showZoom: false }), 'top-right')
     mapRef.current = map
 
+    // Resize map when container becomes visible (e.g. tab switching)
+    const ro = new ResizeObserver(() => map.resize())
+    ro.observe(containerRef.current)
+
     // Tactical draw source + layer (added once on mount)
     map.on('load', () => {
       try {
@@ -427,6 +431,7 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
       objectMarkersRef.current = {}
       Object.values(peopleMarkersRef.current).forEach(m => m.remove())
       peopleMarkersRef.current = {}
+      ro.disconnect()
       if (mapRef.current) {
         mapRef.current.remove()
         mapRef.current = null
@@ -562,7 +567,9 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
     const map = mapRef.current
     if (!map) return
 
+    //when marker-pointer-events-none is add to container, all marker and peoplemarker in the map container will not receive pointer event so the tactical draw can draw without blocked by markers
     if (!tacticalDrawOn) {
+      map.getCanvasContainer().classList.remove('marker-pointer-events-none')
       map.dragPan.enable()
       map.getCanvas().style.cursor = ''
       return
@@ -570,6 +577,7 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
 
     map.dragPan.disable()
     const container = map.getCanvasContainer()
+    container.classList.add('marker-pointer-events-none')
     container.style.touchAction = 'none'
     map.getCanvas().style.cursor = 'crosshair'
 
@@ -630,6 +638,7 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
       document.removeEventListener('pointermove', onPointerMove)
       document.removeEventListener('pointerup', onPointerUp)
       document.removeEventListener('pointercancel', onPointerUp)
+      container.classList.remove('marker-pointer-events-none')
       container.style.touchAction = ''
       map.dragPan.enable()
       map.getCanvas().style.cursor = ''
@@ -675,6 +684,7 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
 
   return (
     <div className="relative size-full">
+      <style>{`.marker-pointer-events-none .gis-marker,.marker-pointer-events-none .people-location-marker{pointer-events:none!important}`}</style>
       <div ref={containerRef} className="size-full" />
 
       {/* Floating action bar for selected object */}
