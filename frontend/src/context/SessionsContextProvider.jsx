@@ -219,6 +219,11 @@ export function SessionsContextProvider({ children }) {
           const gisViewRef = gisViewsRef.current[data.channel]
           if (gisViewRef?.current?.handleSyncMapBoundary) gisViewRef.current.handleSyncMapBoundary(data)
         }
+
+        if (data.type === 'c2_tactical_draw') {
+          const gisViewRef = gisViewsRef.current[data.channel]
+          if (gisViewRef?.current?.handleTacticalDraw) gisViewRef.current.handleTacticalDraw(data)
+        }
       }
     )
     return () => unsubscribe()

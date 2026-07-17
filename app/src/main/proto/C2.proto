@@ -81,6 +81,7 @@ message C2TacticalDraw {
   uint32 stroke_width = 3;
   string stroke_color = 4;       // hex color e.g. "#FF0000"
   repeated TimedPoint points = 5; // drawn path with relative timestamps
+  bool remove = 6;               // true = delete this draw_id
 }
 
 // ── 4. Image ──

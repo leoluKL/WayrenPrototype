@@ -224,7 +224,14 @@ class WebAppInterface(
             }
             payload.hasTacticalDraw() -> {
                 val draw = payload.tacticalDraw
-                """{"type":"c2_tactical_draw","draw_id":"${draw.drawId}","name":"${draw.name}","channel":"$channelStr"}"""
+                val ptsJson = StringBuilder("[")
+                for (i in 0 until draw.pointsCount) {
+                    if (i > 0) ptsJson.append(",")
+                    val tp = draw.getPoints(i)
+                    ptsJson.append("${tp.coord.lng},${tp.coord.lat},${tp.relativeTimeMs}")
+                }
+                ptsJson.append("]")
+                """{"type":"c2_tactical_draw","draw_id":"${draw.drawId}","stroke_color":"${draw.strokeColor}","remove":${draw.remove},"points":$ptsJson,"channel":"$channelStr"}"""
             }
             payload.hasImage() -> {
                 val img = payload.image
@@ -375,26 +382,30 @@ class WebAppInterface(
                 val drawBuilder = com.wayrenprototype.c2.C2.C2TacticalDraw.newBuilder()
                     .setDrawId(data.optString("draw_id", ""))
                     .setName(data.optString("name", ""))
-                    .setStrokeWidth(data.optInt("stroke_width", 3))
+                    .setStrokeWidth(data.optInt("stroke_width", 2))
                     .setStrokeColor(data.optString("stroke_color", "#FF0000"))
-                // Optional: timed points
-                val pointsArr = data.optJSONArray("points")
-                if (pointsArr != null) {
-                    for (i in 0 until pointsArr.length()) {
-                        val ptObj = pointsArr.optJSONObject(i)
-                        if (ptObj != null) {
-                            val coordObj = ptObj.optJSONObject("coord")
-                            if (coordObj != null) {
-                                val timedPoint = com.wayrenprototype.c2.C2.TimedPoint.newBuilder()
-                                    .setCoord(buildCoordinate(coordObj))
-                                    .setRelativeTimeMs(ptObj.optInt("relative_time_ms", 0))
-                                    .build()
-                                drawBuilder.addPoints(timedPoint)
-                            }
-                        }
+                    .setRemove(data.optBoolean("remove", false))
+                // Flat array: [lng, lat, dt, lng, lat, dt, ...]
+                val flatArr = data.optJSONArray("points")
+                if (flatArr != null) {
+                    var i = 0
+                    while (i + 2 < flatArr.length()) {
+                        val lng = flatArr.optDouble(i)
+                        val lat = flatArr.optDouble(i + 1)
+                        val dt = flatArr.optInt(i + 2)
+                        val coord = buildCoordinate(JSONObject().apply {
+                            put("lat", lat)
+                            put("lng", lng)
+                        })
+                        drawBuilder.addPoints(
+                            com.wayrenprototype.c2.C2.TimedPoint.newBuilder()
+                                .setCoord(coord)
+                                .setRelativeTimeMs(dt)
+                                .build()
+                        )
+                        i += 3
                     }
                 }
-
                 com.wayrenprototype.c2.C2.C2Payload.newBuilder()
                     .setTacticalDraw(drawBuilder.build())
                     .build()

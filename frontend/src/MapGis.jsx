@@ -117,6 +117,42 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
     })
   }
 
+  async function sendTacticalDrawC2(feature) {
+    const coords = feature.geometry.coordinates // [lng, lat, dtFromPrev][]
+    const flat = []
+    for (const c of coords) {
+      flat.push(c[0], c[1], c[2] || 0)
+    }
+    await callNativeApi('sendC2Payload', {
+      type: 'c2_tactical_draw',
+      channel: channelId,
+      priority: 10,
+      data: {
+        draw_id: feature.properties.id,
+        name: '',
+        stroke_width: 2,
+        stroke_color: feature.properties.strokeColor,
+        points: flat
+      }
+    })
+  }
+
+  async function sendTacticalDrawDelete(drawId) {
+    await callNativeApi('sendC2Payload', {
+      type: 'c2_tactical_draw',
+      channel: channelId,
+      priority: 10,
+      data: {
+        draw_id: drawId,
+        name: '',
+        stroke_width: 2,
+        stroke_color: '',
+        remove: true,
+        points: []
+      }
+    })
+  }
+
   function createPeopleLocationMarker(obj, map) {
     const el = document.createElement('div')
     el.className = 'people-location-marker'
@@ -290,6 +326,41 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
       const map = mapRef.current
       if (!map) return
       map.flyTo({ center: [data.center_lng, data.center_lat], zoom: data.zoom, duration: 1000 })
+    },
+    handleTacticalDraw(data) {
+      const flat = data.points || []
+      const featureId = data.draw_id
+      // remove=true → delete the feature
+      if (data.remove) {
+        if (!featureId) return
+        const idx = drawFeaturesRef.current.findIndex(f => f.properties?.id === featureId)
+        if (idx === -1) return
+        drawFeaturesRef.current.splice(idx, 1)
+        updateDrawSource()
+        return
+      }
+      const strokeColor = data.stroke_color || '#FF0000'
+      const feature = {
+        type: 'Feature',
+        properties: { id: featureId, strokeColor },
+        geometry: { type: 'LineString', coordinates: [] }
+      }
+      drawFeaturesRef.current.push(feature)
+      let idx = 0
+      const n = flat.length
+      const scheduleNext = () => {
+        if (idx >= n) return
+        const lng = flat[idx]
+        const lat = flat[idx + 1]
+        const dt = flat[idx + 2] || 0
+        feature.geometry.coordinates.push([lng, lat, dt])
+        updateDrawSource()
+        idx += 3
+        if (idx < n) {
+          setTimeout(scheduleNext, Math.max(dt, 0))
+        }
+      }
+      scheduleNext()
     }
   }), [])
 
@@ -514,12 +585,13 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
     const onPointerDown = (e) => {
       if (e.button && e.button !== 0) return
       isDrawing = true
+      lastSample = performance.now()
       const pt = getLngLat(e)
       const featureId = crypto.randomUUID()
       drawFeaturesRef.current.push({
         type: 'Feature',
         properties: { id: featureId, strokeColor: tacticalDrawColor },
-        geometry: { type: 'LineString', coordinates: [[pt.lng, pt.lat]] }
+        geometry: { type: 'LineString', coordinates: [[pt.lng, pt.lat, 0]] }
       })
       updateDrawSource()
     }
@@ -528,18 +600,24 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
       if (!isDrawing) return
       const now = performance.now()
       if (now - lastSample < SAMPLE_MS) return
+      const dt = now - lastSample
       lastSample = now
       const pt = getLngLat(e)
       const features = drawFeaturesRef.current
       const feature = features[features.length - 1]
-      feature.geometry.coordinates.push([pt.lng, pt.lat])
+      feature.geometry.coordinates.push([pt.lng, pt.lat, dt])
       updateDrawSource()
     }
 
     const onPointerUp = () => {
       if (!isDrawing) return
       isDrawing = false
-      if (drawFeaturesRef.current.length > 0) onTacticalDrawEnd?.()
+      if (drawFeaturesRef.current.length > 0) {
+        gisViewRef.current?.syncMapBoundary()
+        const feature = drawFeaturesRef.current[drawFeaturesRef.current.length - 1]
+        sendTacticalDrawC2(feature)
+        onTacticalDrawEnd?.()
+      }
     }
 
     container.addEventListener('pointerdown', onPointerDown)
@@ -580,6 +658,7 @@ export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, o
     drawFeaturesRef.current.splice(idx, 1)
     updateDrawSource()
     setSelectedDrawFeatureId(null)
+    sendTacticalDrawDelete(featureId)
   }
 
   function handleDelete(objectId) {
