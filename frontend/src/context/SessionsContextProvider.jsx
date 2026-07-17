@@ -11,9 +11,12 @@ export function SessionsContextProvider({ children }) {
   const [discoveredChannelsFromMessages, setDiscoveredChannelsFromMessages] = useState([]) // [{ id, name }] — from incoming C2 msgs
   const [openChannels, setOpenChannels] = useState([]) // [{ id, name }]
   const [chatMessagesByChannel, setChatMessagesByChannel] = useState({}) // { [channelId]: [{ from, text, timestamp, type }] }
+  const [gisViews, setGisViews] = useState({}) // { [channelId]: ref } — MapGis forwardRef
   const [deviceName, setDeviceName] = useState('Android App')
   const savedChannelsRef = useRef(savedChannels)
   savedChannelsRef.current = savedChannels
+  const gisViewsRef = useRef(gisViews)
+  useEffect(() => { gisViewsRef.current = gisViews }, [gisViews])
 
   // Reconnection token — bumped by handleGrpcReconnected to restart streams
   const [reconnectToken, setReconnectToken] = useState(0)
@@ -206,10 +209,27 @@ export function SessionsContextProvider({ children }) {
             }
           })
         }
+
+        if (data.type === 'c2_gis_object') {
+          const gisViewRef = gisViewsRef.current[data.channel]
+          if (gisViewRef?.current?.handleGisEvent) gisViewRef.current.handleGisEvent(data)
+        }
       }
     )
     return () => unsubscribe()
   }, [reconnectToken, extractChannelFromMsg])
+
+  const registerGisView = useCallback((channelId, gisViewRef) => {
+    setGisViews(prev => ({ ...prev, [channelId]: gisViewRef }))
+  }, [])
+
+  const unregisterGisView = useCallback((channelId) => {
+    setGisViews(prev => {
+      const next = { ...prev }
+      delete next[channelId]
+      return next
+    })
+  }, [])
 
   const addChannelTab = useCallback((chId, chName) => {
     setOpenChannels(prev => prev.some(ch => ch.id === chId) ? prev : [...prev, { id: chId, name:chName }])
@@ -226,9 +246,12 @@ export function SessionsContextProvider({ children }) {
       discoveredChannelsFromMessages,
       openChannels,
       chatMessagesByChannel,
+      gisViews,
       deviceName,
       addChannelTab,
       closeChannel,
+      registerGisView,
+      unregisterGisView,
       extractChannelFromMsg
     }}>
       {children}

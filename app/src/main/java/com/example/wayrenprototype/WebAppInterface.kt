@@ -214,7 +214,13 @@ class WebAppInterface(
             }
             payload.hasGisObject() -> {
                 val gis = payload.gisObject
-                """{"type":"c2_gis_object","object_id":"${gis.objectId}","name":"${gis.name}","channel":"$channelStr"}"""
+                val action = gis.action.name
+                val lat = if (gis.pointsCount > 0) gis.getPoints(0).lat else 0.0
+                val lng = if (gis.pointsCount > 0) gis.getPoints(0).lng else 0.0
+                val course = if (gis.hasCourse()) gis.course else 0.0
+                val icon = if (gis.hasIcon()) gis.icon else ""
+                val shape = gis.shape.name
+                """{"type":"c2_gis_object","object_id":"${gis.objectId}","name":"${gis.name}","action":"$action","lat":$lat,"lng":$lng,"course":$course,"icon":"$icon","shape":"$shape","channel":"$channelStr"}"""
             }
             payload.hasTacticalDraw() -> {
                 val draw = payload.tacticalDraw

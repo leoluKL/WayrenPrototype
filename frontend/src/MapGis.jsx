@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
+import { useEffect, useRef, useState, useImperativeHandle } from 'react'
 import { RotateCcw, RotateCw, Trash2 } from 'lucide-react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { callNativeApi } from './nativeBridge'
+import { useSessionsContext } from './context/GlobalContext'
 
 // Light Google Maps–style theme for OpenMapTiles schema
 function buildStyle() {
@@ -58,15 +60,56 @@ function buildStyle() {
   }
 }
 
-const MapGis = forwardRef(function MapGis(_props, ref) {
+export default function MapGis({ channelId }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
   const markersRef = useRef({})
+  const gisViewRef = useRef(null)
   const [objects, setObjects] = useState([])
   const [selectedObjectId, setSelectedObjectId] = useState(null)
   const [actionBarPos, setActionBarPos] = useState({ x: 0, y: 0 })
 
-  useImperativeHandle(ref, () => ({
+  const { registerGisView, unregisterGisView } = useSessionsContext()
+
+  // Register our own internal ref on mount, unregister on unmount
+  useEffect(() => {
+    registerGisView(channelId, gisViewRef)
+    return () => unregisterGisView(channelId)
+  }, [channelId])
+
+  async function sendGisUpdate(objectId, name, lng, lat, course, icon) {
+    await callNativeApi('sendC2Payload', {
+      type: 'c2_gis_object',
+      channel: channelId,
+      priority: 10,
+      data: {
+        object_id: objectId,
+        name,
+        action: 'OBJECT_UPDATE',
+        shape: 'SHAPE_ICON',
+        points: [{ lat, lng }],
+        course,
+        icon
+      }
+    })
+  }
+
+  async function sendGisDelete(objectId, name) {
+    await callNativeApi('sendC2Payload', {
+      type: 'c2_gis_object',
+      channel: channelId,
+      priority: 10,
+      data: {
+        object_id: objectId,
+        name,
+        action: 'OBJECT_DELETE',
+        shape: 'SHAPE_ICON',
+        points: []
+      }
+    })
+  }
+
+  useImperativeHandle(gisViewRef, () => ({
     placeShape(shape) {
       const map = mapRef.current
       if (!map) return
@@ -85,6 +128,43 @@ const MapGis = forwardRef(function MapGis(_props, ref) {
 
       setObjects(prev => [...prev, newObj])
       createMarker(newObj, map)
+      sendGisUpdate(newObj.id, newObj.label, newObj.lng, newObj.lat, newObj.rotation, newObj.img)
+    },
+    handleGisEvent(event) {
+      const map = mapRef.current
+      if (!map) return
+
+      if (event.action === 'OBJECT_DELETE') {
+        const marker = markersRef.current[event.object_id]
+        if (marker) {
+          marker.remove()
+          delete markersRef.current[event.object_id]
+          setObjects(prev => prev.filter(o => o.id !== event.object_id))
+        }
+      } else if (event.action === 'OBJECT_UPDATE' && event.object_id) {
+        const existingMarker = markersRef.current[event.object_id]
+        if (existingMarker) {
+          existingMarker.setLngLat([event.lng, event.lat])
+          const imgEl = existingMarker.getElement().querySelector('img')
+          if (imgEl) imgEl.style.transform = `rotate(${event.course}deg)`
+          setObjects(prev => prev.map(o =>
+            o.id === event.object_id
+              ? { ...o, lng: event.lng, lat: event.lat, rotation: event.course }
+              : o
+          ))
+        } else if (event.icon) {
+          const newObj = {
+            id: event.object_id,
+            label: event.name,
+            img: event.icon,
+            lng: event.lng,
+            lat: event.lat,
+            rotation: event.course
+          }
+          setObjects(prev => [...prev, newObj])
+          createMarker(newObj, map)
+        }
+      }
     }
   }), [])
 
@@ -136,9 +216,16 @@ const MapGis = forwardRef(function MapGis(_props, ref) {
 
     marker.on('dragend', () => {
       const lngLat = marker.getLngLat()
-      setObjects(prev => prev.map(o =>
-        o.id === obj.id ? { ...o, lng: lngLat.lng, lat: lngLat.lat } : o
-      ))
+      setObjects(prev => {
+        const updated = prev.map(o =>
+          o.id === obj.id ? { ...o, lng: lngLat.lng, lat: lngLat.lat } : o
+        )
+        const current = updated.find(o => o.id === obj.id)
+        if (current) {
+          sendGisUpdate(current.id, current.label, current.lng, current.lat, current.rotation, current.img)
+        }
+        return updated
+      })
     })
 
     el.addEventListener('click', (e) => {
@@ -203,12 +290,15 @@ const MapGis = forwardRef(function MapGis(_props, ref) {
           const imgEl = marker.getElement().querySelector('img')
           if (imgEl) imgEl.style.transform = `rotate(${newRotation}deg)`
         }
+        sendGisUpdate(o.id, o.label, o.lng, o.lat, newRotation, o.img)
         return { ...o, rotation: newRotation }
       })
     )
   }
 
   function handleDelete(objectId) {
+    const obj = objects.find(o => o.id === objectId)
+    if (obj) sendGisDelete(obj.id, obj.label)
     const marker = markersRef.current[objectId]
     if (marker) {
       marker.remove()
@@ -258,6 +348,4 @@ const MapGis = forwardRef(function MapGis(_props, ref) {
       )}
     </div>
   )
-})
-
-export default MapGis
+}

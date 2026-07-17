@@ -17,9 +17,8 @@ export default function Dashboard() {
   const [tacticalDrawOn, setTacticalDrawOn] = useState(false)
   const menuRef = useRef(null)
   const shapeRef = useRef(null)
-  const mapGisRef = useRef(null)
 
-  const { connected, savedChannels, discoveredChannelsFromMessages, openChannels, addChannelTab, closeChannel } = useSessionsContext()
+  const { connected, savedChannels, discoveredChannelsFromMessages, openChannels, gisViews, addChannelTab, closeChannel } = useSessionsContext()
 
   useEffect(() => {
     const handleClick = (e) => {
@@ -172,7 +171,7 @@ export default function Dashboard() {
                             key={item.label}
                             className="flex items-center gap-2.5 w-full px-3.5 py-3 bg-transparent border-none text-main text-sm rounded-lg text-left min-h-[44px] hover:bg-hover transition-colors"
                             onClick={() => {
-                              mapGisRef.current?.placeShape(item)
+                              gisViews[currentTabId]?.current?.placeShape(item)
                               setShowShapeMenu(false)
                             }}
                           >
@@ -217,7 +216,7 @@ export default function Dashboard() {
 
                 {/* GIS / Map */}
                 <div className="flex-1 min-h-0 relative">
-                  <MapGis ref={mapGisRef} />
+                  <MapGis channelId={ch.id} />
                 </div>
               </div>
             </div>
