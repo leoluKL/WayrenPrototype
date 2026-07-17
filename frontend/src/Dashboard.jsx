@@ -191,7 +191,7 @@ export default function Dashboard() {
                       if (newVal) {
                         gisView?.showMyLocation(deviceName)
                       } else {
-                        gisView?.hideMyLocation()
+                        gisView?.hideMyLocation(deviceName)
                       }
                       setMeOn(newVal)
                     }}

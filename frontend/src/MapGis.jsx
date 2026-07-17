@@ -63,10 +63,10 @@ function buildStyle() {
 export default function MapGis({ channelId }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
-  const markersRef = useRef({})
+  const objectMarkersRef = useRef({})
+  const peopleMarkersRef = useRef({})
   const gisViewRef = useRef(null)
   const myLocationWatchIdRef = useRef(null)
-  const myLocationMarkerRef = useRef(null)
   const [objects, setObjects] = useState([])
   const [selectedObjectId, setSelectedObjectId] = useState(null)
   const [actionBarPos, setActionBarPos] = useState({ x: 0, y: 0 })
@@ -96,7 +96,7 @@ export default function MapGis({ channelId }) {
     })
   }
 
-  async function sendGisDelete(objectId, name) {
+  async function sendGisDelete(objectId, name, icon) {
     await callNativeApi('sendC2Payload', {
       type: 'c2_gis_object',
       channel: channelId,
@@ -104,11 +104,49 @@ export default function MapGis({ channelId }) {
       data: {
         object_id: objectId,
         name,
+        icon,
         action: 'OBJECT_DELETE',
         shape: 'SHAPE_ICON',
         points: []
       }
     })
+  }
+
+  function createPeopleLocationMarker(obj, map) {
+    const el = document.createElement('div')
+    el.className = 'people-location-marker'
+    el.style.cssText = 'position: relative; width: 60px; height: 70px; cursor: default; pointer-events: none;'
+
+    const arrow = document.createElement('div')
+    arrow.className = 'people-location-arrow'
+    arrow.style.cssText = `
+      position: absolute; top: 0; left: 50%; z-index: 1;
+      width: 0; height: 0;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-bottom: 12px solid #3b82f6;
+    `
+    arrow.style.display = 'block'
+    arrow.style.transform = `translateX(-50%) rotate(${obj.rotation}deg)`
+    el.appendChild(arrow)
+
+    const circle = document.createElement('div')
+    circle.style.cssText = `
+      position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+      width: 48px; height: 48px; border-radius: 50%;
+      background: #3b82f6; color: white;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: bold; text-align: center;
+      border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    `
+    circle.textContent = obj.label
+    el.appendChild(circle)
+
+    const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([obj.lng, obj.lat])
+      .addTo(map)
+
+    peopleMarkersRef.current[obj.id] = marker
   }
 
   useImperativeHandle(gisViewRef, () => ({
@@ -137,23 +175,41 @@ export default function MapGis({ channelId }) {
       if (!map) return
 
       if (event.action === 'OBJECT_DELETE') {
-        const marker = markersRef.current[event.object_id]
+        const ref = event.icon === 'people_location' ? peopleMarkersRef : objectMarkersRef
+        const marker = ref.current[event.object_id]
         if (marker) {
           marker.remove()
-          delete markersRef.current[event.object_id]
-          setObjects(prev => prev.filter(o => o.id !== event.object_id))
+          delete ref.current[event.object_id]
+          if (ref === objectMarkersRef) {
+            setObjects(prev => prev.filter(o => o.id !== event.object_id))
+          }
         }
       } else if (event.action === 'OBJECT_UPDATE' && event.object_id) {
-        const existingMarker = markersRef.current[event.object_id]
+        const ref = event.icon === 'people_location' ? peopleMarkersRef : objectMarkersRef
+        const existingMarker = ref.current[event.object_id]
         if (existingMarker) {
           existingMarker.setLngLat([event.lng, event.lat])
-          const imgEl = existingMarker.getElement().querySelector('img')
-          if (imgEl) imgEl.style.transform = `rotate(${event.course}deg)`
-          setObjects(prev => prev.map(o =>
-            o.id === event.object_id
-              ? { ...o, lng: event.lng, lat: event.lat, rotation: event.course }
-              : o
-          ))
+          if (event.icon === 'people_location') {
+            const arrowEl = existingMarker.getElement().querySelector('.people-location-arrow')
+            if (arrowEl) arrowEl.style.transform = `translateX(-50%) rotate(${event.course}deg)`
+          } else {
+            const imgEl = existingMarker.getElement().querySelector('img')
+            if (imgEl) imgEl.style.transform = `rotate(${event.course}deg)`
+            setObjects(prev => prev.map(o =>
+              o.id === event.object_id
+                ? { ...o, lng: event.lng, lat: event.lat, rotation: event.course }
+                : o
+            ))
+          }
+        } else if (event.icon === 'people_location') {
+          const newObj = {
+            id: event.object_id,
+            label: event.name,
+            lng: event.lng,
+            lat: event.lat,
+            rotation: event.course
+          }
+          createPeopleLocationMarker(newObj, map)
         } else if (event.icon) {
           const newObj = {
             id: event.object_id,
@@ -174,79 +230,39 @@ export default function MapGis({ channelId }) {
         navigator.geolocation.clearWatch(myLocationWatchIdRef.current)
         myLocationWatchIdRef.current = null
       }
-      if (myLocationMarkerRef.current) {
-        myLocationMarkerRef.current.remove()
-        myLocationMarkerRef.current = null
-      }
 
       const map = mapRef.current
       if (!map) return
 
+      const objectId = `people_location_${callsign}`
+      let firstFix = true
+
       myLocationWatchIdRef.current = navigator.geolocation.watchPosition(
         (pos) => {
           const { latitude, longitude, heading } = pos.coords
-          const hasHeading = heading != null && !isNaN(heading)
+          const course = heading != null && !isNaN(heading) ? heading : 0
 
-          if (myLocationMarkerRef.current) {
-            myLocationMarkerRef.current.setLngLat([longitude, latitude])
-            const arrow = myLocationMarkerRef.current.getElement().querySelector('.my-loc-arrow')
-            if (arrow) {
-              arrow.style.display = 'block'
-              arrow.style.transform = `translateX(-50%) rotate(${hasHeading ? heading : 0}deg)`
-            }
-          } else {
-            // First fix — pan to location and zoom in
+          // Send C2 so all devices see this device's location
+          sendGisUpdate(objectId, callsign, longitude, latitude, course, 'people_location')
+
+          if (firstFix) {
+            firstFix = false
             map.flyTo({ center: [longitude, latitude], zoom: 14, duration: 1000 })
-
-            const el = document.createElement('div')
-            el.className = 'my-location-marker'
-            el.style.cssText = 'position: relative; width: 60px; height: 70px; cursor: default; pointer-events: none;'
-
-            const arrow = document.createElement('div')
-            arrow.className = 'my-loc-arrow'
-            arrow.style.cssText = `
-              position: absolute; top: 0; left: 50%; z-index: 1;
-              width: 0; height: 0;
-              border-left: 6px solid transparent;
-              border-right: 6px solid transparent;
-              border-bottom: 12px solid #3b82f6;
-            `
-            arrow.style.display = 'block'
-            arrow.style.transform = `translateX(-50%) rotate(${hasHeading ? heading : 0}deg)`
-            el.appendChild(arrow)
-
-            const circle = document.createElement('div')
-            circle.style.cssText = `
-              position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
-              width: 48px; height: 48px; border-radius: 50%;
-              background: #3b82f6; color: white;
-              display: flex; align-items: center; justify-content: center;
-              font-size: 10px; font-weight: bold; text-align: center;
-              border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-            `
-            circle.textContent = callsign
-            el.appendChild(circle)
-
-            myLocationMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
-              .setLngLat([longitude, latitude])
-              .addTo(map)
           }
         },
         (err) => {
           console.warn('GPS error:', err.message)
         },
-        // maximumAge=1 hour: reuses cached position so Show Me works immediately even offline
         { enableHighAccuracy: false, maximumAge: 3600000 }
       )
     },
-    hideMyLocation() {
+    hideMyLocation(callsign) {
       if (myLocationWatchIdRef.current != null) {
         navigator.geolocation.clearWatch(myLocationWatchIdRef.current)
         myLocationWatchIdRef.current = null
       }
-      if (myLocationMarkerRef.current) {
-        myLocationMarkerRef.current.remove()
-        myLocationMarkerRef.current = null
+      if (callsign) {
+        sendGisDelete(`people_location_${callsign}`, '', 'people_location')
       }
     }
   }), [])
@@ -268,8 +284,11 @@ export default function MapGis({ channelId }) {
     mapRef.current = map
 
     return () => {
-      Object.values(markersRef.current).forEach(m => m.remove())
-      markersRef.current = {}
+      // Clean up all markers on unmount
+      Object.values(objectMarkersRef.current).forEach(m => m.remove())
+      objectMarkersRef.current = {}
+      Object.values(peopleMarkersRef.current).forEach(m => m.remove())
+      peopleMarkersRef.current = {}
       if (mapRef.current) {
         mapRef.current.remove()
         mapRef.current = null
@@ -277,7 +296,7 @@ export default function MapGis({ channelId }) {
     }
   }, [])
 
-  // Create a MapLibre Marker for a placed object
+  // Create a MapLibre Marker for a placed object (shape icons)
   function createMarker(obj, map) {
     const el = document.createElement('div')
     el.className = 'gis-marker'
@@ -316,7 +335,7 @@ export default function MapGis({ channelId }) {
       setSelectedObjectId(obj.id)
     })
 
-    markersRef.current[obj.id] = marker
+    objectMarkersRef.current[obj.id] = marker
   }
 
   // Update action bar screen position when selected object or map changes
@@ -352,13 +371,13 @@ export default function MapGis({ channelId }) {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [selectedObjectId])
 
-  // Clean up markers for objects removed from state
+  // Clean up object markers that were removed from state
   useEffect(() => {
     const currentIds = new Set(objects.map(o => o.id))
-    Object.keys(markersRef.current).forEach(id => {
+    Object.keys(objectMarkersRef.current).forEach(id => {
       if (!currentIds.has(id)) {
-        markersRef.current[id].remove()
-        delete markersRef.current[id]
+        objectMarkersRef.current[id].remove()
+        delete objectMarkersRef.current[id]
       }
     })
   }, [objects])
@@ -368,7 +387,7 @@ export default function MapGis({ channelId }) {
       prev.map(o => {
         if (o.id !== objectId) return o
         const newRotation = direction === 'left' ? o.rotation - 15 : o.rotation + 15
-        const marker = markersRef.current[objectId]
+        const marker = objectMarkersRef.current[objectId]
         if (marker) {
           const imgEl = marker.getElement().querySelector('img')
           if (imgEl) imgEl.style.transform = `rotate(${newRotation}deg)`
@@ -381,11 +400,11 @@ export default function MapGis({ channelId }) {
 
   function handleDelete(objectId) {
     const obj = objects.find(o => o.id === objectId)
-    if (obj) sendGisDelete(obj.id, obj.label)
-    const marker = markersRef.current[objectId]
+    if (obj) sendGisDelete(obj.id, obj.label, obj.img)
+    const marker = objectMarkersRef.current[objectId]
     if (marker) {
       marker.remove()
-      delete markersRef.current[objectId]
+      delete objectMarkersRef.current[objectId]
     }
     setObjects(prev => prev.filter(o => o.id !== objectId))
     setSelectedObjectId(null)
