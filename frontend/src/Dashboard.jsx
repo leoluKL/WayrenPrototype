@@ -16,6 +16,8 @@ export default function Dashboard() {
   const [meOn, setMeOn] = useState(false)
   const [showShapeMenu, setShowShapeMenu] = useState(false)
   const [tacticalDrawOn, setTacticalDrawOn] = useState(false)
+  const [tacticalDrawColor, setTacticalDrawColor] = useState('#FF0000')
+  const [showTacticalMenu, setShowTacticalMenu] = useState(false)
   const menuRef = useRef(null)
   const shapeRef = useRef(null)
 
@@ -29,12 +31,13 @@ export default function Dashboard() {
       if (shapeRef.current && !shapeRef.current.contains(e.target)) {
         setShowShapeMenu(false)
       }
+      if (showTacticalMenu) setShowTacticalMenu(false)
     }
-    if (showMenu || showShapeMenu) {
+    if (showMenu || showShapeMenu || showTacticalMenu) {
       document.addEventListener('mousedown', handleClick)
       return () => document.removeEventListener('mousedown', handleClick)
     }
-  }, [showMenu, showShapeMenu])
+  }, [showMenu, showShapeMenu, showTacticalMenu])
 
   const handleTabClick = useCallback((chId) => {
     setCurrentTabId(chId)
@@ -215,17 +218,49 @@ export default function Dashboard() {
                   >
                     Sync Boundary
                   </button>
-                  <button
-                    className={`flex items-center gap-1.5 border-none text-xs px-3 py-2 rounded-lg min-h-[36px] transition-all duration-150 ${tacticalDrawOn ? 'bg-green-700 text-white shadow-[inset_0_2px_6px_rgba(0,0,0,0.35)] translate-y-[1px]' : 'bg-hover text-dim shadow-sm'}`}
-                    onClick={() => setTacticalDrawOn(v => !v)}
-                  >
-                    Tactical Draw
-                  </button>
+                  <div className="relative">
+                    <button
+                      className={`flex items-center gap-1.5 border-none text-xs px-3 py-2 rounded-lg min-h-[36px] transition-all duration-150 ${tacticalDrawOn ? 'bg-green-700 text-white shadow-[inset_0_2px_6px_rgba(0,0,0,0.35)] translate-y-[1px]' : 'bg-hover text-dim shadow-sm'}`}
+                      onClick={() => {
+                        if (tacticalDrawOn) {
+                          setTacticalDrawOn(false)
+                        } else {
+                          setShowTacticalMenu(v => !v)
+                        }
+                      }}
+                    >
+                      {tacticalDrawOn && (
+                        <span className="inline-block w-3 h-3 rounded-full shrink-0" style={{ background: tacticalDrawColor }} />
+                      )}
+                      Tactical Draw
+                    </button>
+                    {showTacticalMenu && (
+                      <div className="absolute top-full mt-1 bg-surface border border-border rounded-lg p-1 min-w-[160px] z-[100] shadow-lg shadow-black/40" style={{ right: -8 }} onMouseDown={(e) => e.stopPropagation()}>
+                        {[
+                          { label: 'Red Line', color: '#FF0000' },
+                          { label: 'Blue Line', color: '#0000FF' },
+                        ].map(item => (
+                          <button
+                            key={item.label}
+                            className="flex items-center gap-2.5 w-full px-3.5 py-3 bg-transparent border-none text-main text-sm rounded-lg text-left min-h-[44px] hover:bg-hover transition-colors"
+                            onClick={() => {
+                              setTacticalDrawColor(item.color)
+                              setTacticalDrawOn(true)
+                              setShowTacticalMenu(false)
+                            }}
+                          >
+                            <span className="inline-block w-4 h-4 rounded-full" style={{ background: item.color }} />
+                            <span>{item.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* GIS / Map */}
                 <div className="flex-1 min-h-0 relative">
-                  <MapGis channelId={ch.id} />
+                  <MapGis channelId={ch.id} tacticalDrawOn={tacticalDrawOn} tacticalDrawColor={tacticalDrawColor} />
                 </div>
               </div>
             </div>
