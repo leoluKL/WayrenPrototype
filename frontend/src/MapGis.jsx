@@ -875,7 +875,7 @@ export default function MapGis({ channelId }) {
           className="marker-action-bar absolute z-[200] flex items-center gap-1.5 bg-surface border border-border rounded-lg px-3 py-1.5 shadow-lg shadow-black/40 pointer-events-auto"
           style={{
             left: drawActionBarPos.x,
-            top: drawActionBarPos.y - 80,
+            top: drawActionBarPos.y,
             transform: 'translateX(-50%)'
           }}
         >
