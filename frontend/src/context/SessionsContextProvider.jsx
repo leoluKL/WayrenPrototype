@@ -214,6 +214,11 @@ export function SessionsContextProvider({ children }) {
           const gisViewRef = gisViewsRef.current[data.channel]
           if (gisViewRef?.current?.handleGisEvent) gisViewRef.current.handleGisEvent(data)
         }
+
+        if (data.type === 'c2_sync_map_boundary') {
+          const gisViewRef = gisViewsRef.current[data.channel]
+          if (gisViewRef?.current?.handleSyncMapBoundary) gisViewRef.current.handleSyncMapBoundary(data)
+        }
       }
     )
     return () => unsubscribe()

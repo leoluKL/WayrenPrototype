@@ -202,6 +202,8 @@ export default function Dashboard() {
                   <button
                     className="flex items-center gap-1.5 bg-hover border-none text-dim text-xs px-3 py-2 rounded-lg min-h-[36px] transition-colors duration-1000"
                     onClick={(e) => {
+                      const gisView = gisViews[currentTabId]?.current
+                      gisView?.syncMapBoundary()
                       const el = e.currentTarget
                       el.style.backgroundColor = '#16a34a'
                       el.style.color = 'white'

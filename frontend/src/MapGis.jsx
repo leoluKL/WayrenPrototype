@@ -264,6 +264,27 @@ export default function MapGis({ channelId }) {
       if (callsign) {
         sendGisDelete(`people_location_${callsign}`, '', 'people_location')
       }
+    },
+    syncMapBoundary() {
+      const map = mapRef.current
+      if (!map) return
+      const center = map.getCenter()
+      const zoom = map.getZoom()
+      callNativeApi('sendC2Payload', {
+        type: 'c2_sync_map_boundary',
+        channel: channelId,
+        priority: 10,
+        data: {
+          center_lat: center.lat,
+          center_lng: center.lng,
+          zoom
+        }
+      })
+    },
+    handleSyncMapBoundary(data) {
+      const map = mapRef.current
+      if (!map) return
+      map.flyTo({ center: [data.center_lng, data.center_lat], zoom: data.zoom, duration: 1000 })
     }
   }), [])
 

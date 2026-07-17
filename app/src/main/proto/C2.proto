@@ -24,6 +24,7 @@ message C2Payload {
     C2TacticalDraw  tactical_draw  = 3;
     C2Image         image          = 4;
     C2Audio         audio          = 5;
+    C2SyncMapBoundary sync_map_boundary = 6;
   }
 }
 
@@ -103,4 +104,12 @@ message C2Audio {
   string from_callsign = 4;
   string uuid = 5;
   uint32 duration_sec = 6;
+}
+
+// ── 6. Sync Map Boundary (share map center and zoom) ──
+
+message C2SyncMapBoundary {
+  double center_lat = 1;
+  double center_lng = 2;
+  double zoom = 3;
 }

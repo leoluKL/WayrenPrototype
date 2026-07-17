@@ -238,6 +238,10 @@ class WebAppInterface(
                 val b64 = android.util.Base64.encodeToString(aud.data.toByteArray(), android.util.Base64.NO_WRAP)
                 """{"type":"c2_audio","audio_id":"${aud.audioId}","uuid":"${aud.uuid}","mime":"${aud.mimeType}","data":"$b64","duration_sec":${aud.durationSec},"from":"${aud.fromCallsign}","channel":"$channelStr"}"""
             }
+            payload.hasSyncMapBoundary() -> {
+                val sv = payload.syncMapBoundary
+                """{"type":"c2_sync_map_boundary","center_lat":${sv.centerLat},"center_lng":${sv.centerLng},"zoom":${sv.zoom},"channel":"$channelStr"}"""
+            }
             else -> """{"type":"c2_unknown","channel":"$channelStr"}"""
         }
     }
@@ -435,6 +439,15 @@ class WebAppInterface(
                 }
                 com.wayrenprototype.c2.C2.C2Payload.newBuilder()
                     .setAudio(audBuilder.build())
+                    .build()
+            }
+            "c2_sync_map_boundary" -> {
+                val svBuilder = com.wayrenprototype.c2.C2.C2SyncMapBoundary.newBuilder()
+                    .setCenterLat(data.optDouble("center_lat", 0.0))
+                    .setCenterLng(data.optDouble("center_lng", 0.0))
+                    .setZoom(data.optDouble("zoom", 0.0))
+                com.wayrenprototype.c2.C2.C2Payload.newBuilder()
+                    .setSyncMapBoundary(svBuilder.build())
                     .build()
             }
             else -> throw IllegalArgumentException("Unknown C2Payload type: $type")
