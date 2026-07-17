@@ -17,6 +17,7 @@ export default function Dashboard() {
   const [tacticalDrawOn, setTacticalDrawOn] = useState(false)
   const menuRef = useRef(null)
   const shapeRef = useRef(null)
+  const mapGisRef = useRef(null)
 
   const { connected, savedChannels, discoveredChannelsFromMessages, openChannels, addChannelTab, closeChannel } = useSessionsContext()
 
@@ -154,7 +155,7 @@ export default function Dashboard() {
                   {/* Shape button + dropdown */}
                   <div className="relative" ref={shapeRef}>
                     <button
-                      className="flex items-center gap-1.5 bg-hover border-none text-dim text-xs px-3 py-2 rounded-lg min-h-[36px]"
+                      className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg min-h-[36px] bg-hover text-dim"
                       onClick={() => setShowShapeMenu(v => !v)}
                     >
                       Shape
@@ -170,7 +171,10 @@ export default function Dashboard() {
                           <button
                             key={item.label}
                             className="flex items-center gap-2.5 w-full px-3.5 py-3 bg-transparent border-none text-main text-sm rounded-lg text-left min-h-[44px] hover:bg-hover transition-colors"
-                            onClick={() => setShowShapeMenu(false)}
+                            onClick={() => {
+                              mapGisRef.current?.placeShape(item)
+                              setShowShapeMenu(false)
+                            }}
                           >
                             <img src={item.img} alt={item.label} className="max-h-8" />
                             <span>{item.label}</span>
@@ -213,7 +217,7 @@ export default function Dashboard() {
 
                 {/* GIS / Map */}
                 <div className="flex-1 min-h-0 relative">
-                  <MapGis />
+                  <MapGis ref={mapGisRef} />
                 </div>
               </div>
             </div>
