@@ -60,7 +60,7 @@ function buildStyle() {
   }
 }
 
-export default function MapGis({ channelId }) {
+export default function MapGis({ channelId, tacticalDrawOn, tacticalDrawColor, onTacticalDrawEnd }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
   const objectMarkersRef = useRef({})
@@ -70,6 +70,11 @@ export default function MapGis({ channelId }) {
   const [objects, setObjects] = useState([])
   const [selectedObjectId, setSelectedObjectId] = useState(null)
   const [actionBarPos, setActionBarPos] = useState({ x: 0, y: 0 })
+  const [selectedDrawFeatureId, setSelectedDrawFeatureId] = useState(null)
+  const [drawActionBarPos, setDrawActionBarPos] = useState({ x: 0, y: 0 })
+  const tacticalDrawOnRef = useRef(tacticalDrawOn)
+  useEffect(() => { tacticalDrawOnRef.current = tacticalDrawOn }, [tacticalDrawOn])
+  const geoLocationTacticalDrawMenu = useRef(null)
 
   const { registerGisView, unregisterGisView } = useSessionsContext()
 
@@ -304,6 +309,47 @@ export default function MapGis({ channelId }) {
     map.addControl(new maplibregl.NavigationControl({ showZoom: false }), 'top-right')
     mapRef.current = map
 
+    // Tactical draw source + layer (added once on mount)
+    map.on('load', () => {
+      try {
+        map.addSource('tactical-draw', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        })
+        map.addLayer({
+          id: 'tactical-draw-line',
+          type: 'line',
+          source: 'tactical-draw',
+          paint: {
+            'line-color': ['get', 'strokeColor'],
+            'line-width': 2
+          }
+        })
+
+        // Click on map → detect draw line hit (with 20px tolerance) or deselect
+        // (skip when tactical draw is active — user intends to draw, not select)
+        map.on('click', (e) => {
+          if (tacticalDrawOnRef.current) return
+          const bbox = [
+            [e.point.x - 20, e.point.y - 20],
+            [e.point.x + 20, e.point.y + 20]
+          ]
+          const features = map.queryRenderedFeatures(bbox, { layers: ['tactical-draw-line'] })
+          if (features.length > 0) {
+            const featureId = features[0].properties?.id
+            if (!featureId) return
+            geoLocationTacticalDrawMenu.current = [e.lngLat.lng, e.lngLat.lat]
+            setSelectedObjectId(null)
+            setSelectedDrawFeatureId(featureId)
+            setDrawActionBarPos({ x: e.point.x, y: e.point.y })
+          } else {
+            setSelectedDrawFeatureId(null)
+            geoLocationTacticalDrawMenu.current = null
+          }
+        })
+      } catch (e) { /* already exists */ }
+    })
+
     return () => {
       // Clean up all markers on unmount
       Object.values(objectMarkersRef.current).forEach(m => m.remove())
@@ -380,17 +426,40 @@ export default function MapGis({ channelId }) {
     }
   }, [selectedObjectId, objects])
 
+  // Update draw line action bar position when map moves
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !selectedDrawFeatureId) return
+
+    const updatePos = () => {
+      const clickLngLat = geoLocationTacticalDrawMenu.current
+      if (!clickLngLat) return
+      const point = map.project(clickLngLat)
+      setDrawActionBarPos({ x: point.x, y: point.y })
+    }
+
+    updatePos()
+    map.on('move', updatePos)
+    map.on('zoom', updatePos)
+    return () => {
+      map.off('move', updatePos)
+      map.off('zoom', updatePos)
+    }
+  }, [selectedDrawFeatureId])
+
   // Click outside a marker or action bar to deselect
   useEffect(() => {
-    if (!selectedObjectId) return
+    if (!selectedObjectId && !selectedDrawFeatureId) return
     const handleClick = (e) => {
-      if (!e.target.closest('.gis-marker') && !e.target.closest('.marker-action-bar')) {
+      if (e.target.closest('.marker-action-bar')) return
+      setSelectedDrawFeatureId(null)
+      if (!e.target.closest('.gis-marker')) {
         setSelectedObjectId(null)
       }
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
-  }, [selectedObjectId])
+  }, [selectedObjectId, selectedDrawFeatureId])
 
   // Clean up object markers that were removed from state
   useEffect(() => {
@@ -402,6 +471,92 @@ export default function MapGis({ channelId }) {
       }
     })
   }, [objects])
+
+  // Persist completed draw features across draw sessions
+  const drawFeaturesRef = useRef([])
+
+  // Shared helper to push draw features to the GeoJSON source
+  function updateDrawSource() {
+    try {
+      const map = mapRef.current
+      if (!map) return
+      const source = map.getSource('tactical-draw')
+      if (!source) return
+      source.setData({ type: 'FeatureCollection', features: drawFeaturesRef.current })
+    } catch (e) { /* source not ready yet */ }
+  }
+
+  // Tactical draw interaction
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    if (!tacticalDrawOn) {
+      map.dragPan.enable()
+      map.getCanvas().style.cursor = ''
+      return
+    }
+
+    map.dragPan.disable()
+    const container = map.getCanvasContainer()
+    container.style.touchAction = 'none'
+    map.getCanvas().style.cursor = 'crosshair'
+
+    const SAMPLE_MS = 150
+    let isDrawing = false
+
+    const getLngLat = (e) => {
+      const rect = container.getBoundingClientRect()
+      return map.unproject([e.clientX - rect.left, e.clientY - rect.top])
+    }
+
+    let lastSample = 0
+    const onPointerDown = (e) => {
+      if (e.button && e.button !== 0) return
+      isDrawing = true
+      const pt = getLngLat(e)
+      const featureId = crypto.randomUUID()
+      drawFeaturesRef.current.push({
+        type: 'Feature',
+        properties: { id: featureId, strokeColor: tacticalDrawColor },
+        geometry: { type: 'LineString', coordinates: [[pt.lng, pt.lat]] }
+      })
+      updateDrawSource()
+    }
+
+    const onPointerMove = (e) => {
+      if (!isDrawing) return
+      const now = performance.now()
+      if (now - lastSample < SAMPLE_MS) return
+      lastSample = now
+      const pt = getLngLat(e)
+      const features = drawFeaturesRef.current
+      const feature = features[features.length - 1]
+      feature.geometry.coordinates.push([pt.lng, pt.lat])
+      updateDrawSource()
+    }
+
+    const onPointerUp = () => {
+      if (!isDrawing) return
+      isDrawing = false
+      if (drawFeaturesRef.current.length > 0) onTacticalDrawEnd?.()
+    }
+
+    container.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('pointermove', onPointerMove)
+    document.addEventListener('pointerup', onPointerUp)
+    document.addEventListener('pointercancel', onPointerUp)
+
+    return () => {
+      container.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('pointermove', onPointerMove)
+      document.removeEventListener('pointerup', onPointerUp)
+      document.removeEventListener('pointercancel', onPointerUp)
+      container.style.touchAction = ''
+      map.dragPan.enable()
+      map.getCanvas().style.cursor = ''
+    }
+  }, [tacticalDrawOn])
 
   function handleRotate(objectId, direction) {
     setObjects(prev =>
@@ -417,6 +572,14 @@ export default function MapGis({ channelId }) {
         return { ...o, rotation: newRotation }
       })
     )
+  }
+
+  function handleDeleteDrawFeature(featureId) {
+    const idx = drawFeaturesRef.current.findIndex(f => f.properties?.id === featureId)
+    if (idx === -1) return
+    drawFeaturesRef.current.splice(idx, 1)
+    updateDrawSource()
+    setSelectedDrawFeatureId(null)
   }
 
   function handleDelete(objectId) {
@@ -464,6 +627,27 @@ export default function MapGis({ channelId }) {
             style={{ background: 'rgba(239,68,68,0.2)', color: '#ef4444' }}
             onClick={() => handleDelete(selectedObjectId)}
             title="Delete"
+          >
+            <Trash2 size={22} />
+          </button>
+        </div>
+      )}
+
+      {/* Action bar for selected draw line */}
+      {selectedDrawFeatureId && (
+        <div
+          className="marker-action-bar absolute z-[200] flex items-center gap-1.5 bg-surface border border-border rounded-lg px-3 py-1.5 shadow-lg shadow-black/40 pointer-events-auto"
+          style={{
+            left: drawActionBarPos.x,
+            top: drawActionBarPos.y - 80,
+            transform: 'translateX(-50%)'
+          }}
+        >
+          <button
+            className="flex items-center justify-center w-12 h-12 border-none rounded-lg cursor-pointer transition-colors"
+            style={{ background: 'rgba(239,68,68,0.2)', color: '#ef4444' }}
+            onClick={() => handleDeleteDrawFeature(selectedDrawFeatureId)}
+            title="Delete line"
           >
             <Trash2 size={22} />
           </button>

@@ -260,7 +260,7 @@ export default function Dashboard() {
 
                 {/* GIS / Map */}
                 <div className="flex-1 min-h-0 relative">
-                  <MapGis channelId={ch.id} tacticalDrawOn={tacticalDrawOn} tacticalDrawColor={tacticalDrawColor} />
+                  <MapGis channelId={ch.id} tacticalDrawOn={tacticalDrawOn} tacticalDrawColor={tacticalDrawColor} onTacticalDrawEnd={() => setTacticalDrawOn(false)} />
                 </div>
               </div>
             </div>
