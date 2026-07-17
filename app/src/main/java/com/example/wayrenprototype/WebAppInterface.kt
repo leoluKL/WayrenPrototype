@@ -58,11 +58,25 @@ class WebAppInterface(
 
             try {
                 when (action) {
-                    "streamAllWayrenNewMessages" -> handleStreamAllNewMessages(streamId) //receive message from all possible wayren channels
-                    "streamAllWayrenChannels" -> handleStreamAllWayrenChannels(streamId) //list all available channels
+                    "streamAllWayrenNewMessages" -> {
+                        if (grpcClient.isConnected) {
+                            handleStreamAllNewMessages(streamId)
+                        } else {
+                            Log.w(TAG, "Defer stream '$action': service not connected")
+                        }
+                    }
+                    "streamAllWayrenChannels" -> {
+                        if (grpcClient.isConnected) {
+                            handleStreamAllWayrenChannels(streamId)
+                        } else {
+                            Log.w(TAG, "Defer stream '$action': service not connected")
+                        }
+                    }
                 }
             } catch (e: CancellationException) {
                 // Stream was stopped normally by the frontend
+            } catch (e: Exception) {
+                Log.e(TAG, "Stream '$action' crashed: ${e.message}")
             }
         }
     }

@@ -15,6 +15,15 @@ export function SessionsContextProvider({ children }) {
   const savedChannelsRef = useRef(savedChannels)
   savedChannelsRef.current = savedChannels
 
+  // Reconnection token — bumped by handleGrpcReconnected to restart streams
+  const [reconnectToken, setReconnectToken] = useState(0)
+
+  // Register the global reconnection handler called by Android
+  useEffect(() => {
+    window.handleGrpcReconnected = () => setReconnectToken(t => t + 1)
+    return () => { delete window.handleGrpcReconnected }
+  }, [])
+
   // Fetch device name on mount
   useEffect(() => {
     callNativeApi('getDeviceName').then(r => {
@@ -37,7 +46,7 @@ export function SessionsContextProvider({ children }) {
     return () => clearInterval(interval)
   }, [])
 
-  // Subscribe to channel list stream (Saved Channels)
+  // Subscribe to channel list stream (Saved Channels) — restarts on reconnection
   useEffect(() => {
     const unsubscribe = subscribeToNativeInternalStream(
       'streamAllWayrenChannels',
@@ -52,7 +61,7 @@ export function SessionsContextProvider({ children }) {
       }
     )
     return () => unsubscribe()
-  }, [])
+  }, [reconnectToken])
 
   // When savedChannels updates, backfill names in discovered channels
   useEffect(() => {
@@ -200,7 +209,7 @@ export function SessionsContextProvider({ children }) {
       }
     )
     return () => unsubscribe()
-  }, [extractChannelFromMsg])
+  }, [reconnectToken, extractChannelFromMsg])
 
   const addChannelTab = useCallback((chId, chName) => {
     setOpenChannels(prev => prev.some(ch => ch.id === chId) ? prev : [...prev, { id: chId, name:chName }])

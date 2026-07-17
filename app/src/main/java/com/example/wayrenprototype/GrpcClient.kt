@@ -39,6 +39,9 @@ class GrpcClient(
     var isConnected: Boolean = false
         private set
 
+    /** Fires when the connection transitions from disconnected → connected. */
+    var onReconnected: (() -> Unit)? = null
+
     private val grpcChannel: ManagedChannel = ManagedChannelBuilder.forAddress(host, port)
         .usePlaintext()           // localhost loopback, no TLS needed
         .keepAliveTime(15, TimeUnit.SECONDS)
@@ -84,10 +87,8 @@ class GrpcClient(
                     isConnected = true
                     Log.i(TAG, "Connection established — Wayren Companion is reachable")
 
-                    // Auto-send a test message to verify the connection end-to-end
-                    //val testText = "WayrenPrototype connected at ${System.currentTimeMillis()}"
-                    //val sent = sendWayrenChatMessage(testText, "WayrenProto")
-                    //Log.i(TAG, "Auto-send test message: ${if (sent) "sent" else "failed"}")
+                    // Notify the frontend so it can restart gRPC streams
+                    onReconnected?.invoke()
 
                     // Also start stream logging for all new messages
                     appScope.launch(Dispatchers.IO) {
@@ -254,7 +255,7 @@ class GrpcClient(
      * Background loop that logs all available channels and incoming messages.
      */
     private suspend fun streamLoggingLoop() {
-        // ── Phase 1: detect available channels ──
+            // ── Phase 1: detect available channels ──
         val wayrenChannelsListQueue = kotlinx.coroutines.channels.Channel<ee.wayren.icp.channels.Channels.Channel>(kotlinx.coroutines.channels.Channel.UNLIMITED)
         Log.i(TAG, "Detecting available Wayren channels...")
 

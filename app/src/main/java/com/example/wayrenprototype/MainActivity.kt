@@ -152,6 +152,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // When the gRPC service reconnects (after a disconnect), tell the frontend
+        // to restart its streams (streamAllChannels, streamAllNewMessages).
+        grpcClient.onReconnected = {
+            webView.post {
+                webView.evaluateJavascript(
+                    "window.handleGrpcReconnected && window.handleGrpcReconnected()",
+                    null
+                )
+            }
+        }
+
         // Continuously monitor the Wayren Companion service connection in the background.
         // Updates isConnected; frontend can query via getConnectionStatus bridge call.
         // Also auto-launches a stream-logging loop once connected.
