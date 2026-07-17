@@ -5,6 +5,7 @@ import ChannelsListWindow from './ChannelsListWindow'
 import CreateChannel from './CreateChannel'
 import ChatWindow from './ChatWindow'
 import MapGis from './MapGis'
+import SwitchButton from './common/SwitchButton'
 
 export default function Dashboard() {
   const [showMenu, setShowMenu] = useState(false)
@@ -18,7 +19,7 @@ export default function Dashboard() {
   const menuRef = useRef(null)
   const shapeRef = useRef(null)
 
-  const { connected, savedChannels, discoveredChannelsFromMessages, openChannels, gisViews, addChannelTab, closeChannel } = useSessionsContext()
+  const { connected, savedChannels, discoveredChannelsFromMessages, openChannels, gisViews, deviceName, addChannelTab, closeChannel } = useSessionsContext()
 
   useEffect(() => {
     const handleClick = (e) => {
@@ -183,15 +184,21 @@ export default function Dashboard() {
                     )}
                   </div>
                   {/* Me toggle switch */}
-                  <div
-                    className={`relative flex-shrink-0 w-[95px] h-8 flex items-center cursor-pointer rounded-full transition-colors duration-300 ${meOn ? "bg-green-600" : "bg-red-600"} text-xs`}
-                    onClick={() => setMeOn(v => !v)}
-                  >
-                    <div className={`absolute w-7 h-7 bg-white rounded-full transition-all duration-300 shadow-sm ${meOn ? "left-[calc(100%-30px)]" : "left-[2px]"}`} />
-                    <span className={`w-full flex px-3 text-white font-bold transition-all select-none ${meOn ? "justify-start" : "justify-end"}`}>
-                      {meOn ? "Show Me" : "Hide Me"}
-                    </span>
-                  </div>
+                  <SwitchButton
+                    isOn={meOn}
+                    onToggle={(newVal) => {
+                      const gisView = gisViews[currentTabId]?.current
+                      if (newVal) {
+                        gisView?.showMyLocation(deviceName)
+                      } else {
+                        gisView?.hideMyLocation()
+                      }
+                      setMeOn(newVal)
+                    }}
+                    onText="Show Me"
+                    offText="Hide Me"
+                    width="w-[95px]"
+                  />
                   <button
                     className="flex items-center gap-1.5 bg-hover border-none text-dim text-xs px-3 py-2 rounded-lg min-h-[36px] transition-colors duration-1000"
                     onClick={(e) => {

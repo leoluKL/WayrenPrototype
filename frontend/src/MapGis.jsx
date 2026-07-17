@@ -65,6 +65,8 @@ export default function MapGis({ channelId }) {
   const mapRef = useRef(null)
   const markersRef = useRef({})
   const gisViewRef = useRef(null)
+  const myLocationWatchIdRef = useRef(null)
+  const myLocationMarkerRef = useRef(null)
   const [objects, setObjects] = useState([])
   const [selectedObjectId, setSelectedObjectId] = useState(null)
   const [actionBarPos, setActionBarPos] = useState({ x: 0, y: 0 })
@@ -165,6 +167,87 @@ export default function MapGis({ channelId }) {
           createMarker(newObj, map)
         }
       }
+    },
+    showMyLocation(callsign) {
+      // Clean up previous
+      if (myLocationWatchIdRef.current != null) {
+        navigator.geolocation.clearWatch(myLocationWatchIdRef.current)
+        myLocationWatchIdRef.current = null
+      }
+      if (myLocationMarkerRef.current) {
+        myLocationMarkerRef.current.remove()
+        myLocationMarkerRef.current = null
+      }
+
+      const map = mapRef.current
+      if (!map) return
+
+      myLocationWatchIdRef.current = navigator.geolocation.watchPosition(
+        (pos) => {
+          const { latitude, longitude, heading } = pos.coords
+          const hasHeading = heading != null && !isNaN(heading)
+
+          if (myLocationMarkerRef.current) {
+            myLocationMarkerRef.current.setLngLat([longitude, latitude])
+            const arrow = myLocationMarkerRef.current.getElement().querySelector('.my-loc-arrow')
+            if (arrow) {
+              arrow.style.display = 'block'
+              arrow.style.transform = `translateX(-50%) rotate(${hasHeading ? heading : 0}deg)`
+            }
+          } else {
+            // First fix — pan to location and zoom in
+            map.flyTo({ center: [longitude, latitude], zoom: 14, duration: 1000 })
+
+            const el = document.createElement('div')
+            el.className = 'my-location-marker'
+            el.style.cssText = 'position: relative; width: 60px; height: 70px; cursor: default; pointer-events: none;'
+
+            const arrow = document.createElement('div')
+            arrow.className = 'my-loc-arrow'
+            arrow.style.cssText = `
+              position: absolute; top: 0; left: 50%; z-index: 1;
+              width: 0; height: 0;
+              border-left: 6px solid transparent;
+              border-right: 6px solid transparent;
+              border-bottom: 12px solid #3b82f6;
+            `
+            arrow.style.display = 'block'
+            arrow.style.transform = `translateX(-50%) rotate(${hasHeading ? heading : 0}deg)`
+            el.appendChild(arrow)
+
+            const circle = document.createElement('div')
+            circle.style.cssText = `
+              position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+              width: 48px; height: 48px; border-radius: 50%;
+              background: #3b82f6; color: white;
+              display: flex; align-items: center; justify-content: center;
+              font-size: 10px; font-weight: bold; text-align: center;
+              border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            `
+            circle.textContent = callsign
+            el.appendChild(circle)
+
+            myLocationMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
+              .setLngLat([longitude, latitude])
+              .addTo(map)
+          }
+        },
+        (err) => {
+          console.warn('GPS error:', err.message)
+        },
+        // maximumAge=1 hour: reuses cached position so Show Me works immediately even offline
+        { enableHighAccuracy: false, maximumAge: 3600000 }
+      )
+    },
+    hideMyLocation() {
+      if (myLocationWatchIdRef.current != null) {
+        navigator.geolocation.clearWatch(myLocationWatchIdRef.current)
+        myLocationWatchIdRef.current = null
+      }
+      if (myLocationMarkerRef.current) {
+        myLocationMarkerRef.current.remove()
+        myLocationMarkerRef.current = null
+      }
     }
   }), [])
 
@@ -181,7 +264,7 @@ export default function MapGis({ channelId }) {
       fadeDuration: 0
     })
 
-    map.addControl(new maplibregl.NavigationControl(), 'top-right')
+    map.addControl(new maplibregl.NavigationControl({ showZoom: false }), 'top-right')
     mapRef.current = map
 
     return () => {

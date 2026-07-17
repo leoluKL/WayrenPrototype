@@ -39,6 +39,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Request ACCESS_FINE_LOCATION runtime permission so navigator.geolocation works in WebView
+    private val locationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) {
+            android.util.Log.w("WayrenApp", "ACCESS_FINE_LOCATION permission denied by user — Show Me feature won't work")
+        }
+    }
+
     private val fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
             val uris = if (cameraImageUri != null) {
@@ -65,6 +72,7 @@ class MainActivity : AppCompatActivity() {
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
+        webView.settings.setGeolocationEnabled(true)
 
 
         //Enable remote debugging so you can use Chrome DevTools on your computer
@@ -140,6 +148,11 @@ class MainActivity : AppCompatActivity() {
                     request.grant(request.resources)
                 }
             }
+
+            // Required for navigator.geolocation to work in WebView
+            override fun onGeolocationPermissionsShowPrompt(origin: String, callback: android.webkit.GeolocationPermissions.Callback) {
+                callback.invoke(origin, true, false)
+            }
         }
 
         // Load via the secure app domain instead of file://
@@ -149,6 +162,13 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+            }
+        }
+
+        // Request ACCESS_FINE_LOCATION at OS level so navigator.geolocation works in WebView
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                locationPermissionLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
             }
         }
 
